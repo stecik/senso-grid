@@ -71,6 +71,11 @@ Host musí mít funkční Bluetooth LE adaptér a běžící BlueZ:
 sudo apt-get install bluez
 sudo systemctl enable --now bluetooth
 bluetoothctl show
+# dbus-daemon odpojí UID, které hostitel nezná; kontejner běží jako 10001.
+sudo groupadd --system --gid 10001 sensogrid
+sudo useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin sensogrid
+sudo usermod -aG bluetooth sensogrid
+sudo systemctl reload dbus
 docker compose -f compose.yaml -f compose.ble.yaml up -d --build
 ```
 

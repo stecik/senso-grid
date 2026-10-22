@@ -1,0 +1,65 @@
+name: sensogrid
+services:
+  app:
+    image: ${SENSOGRID_IMAGE:-sensogrid:local}
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${SENSOGRID_BIND:-127.0.0.1}:${SENSOGRID_PORT:-8097}:8000"
+    environment:
+      FORWARDED_ALLOW_IPS: ${SENSOGRID_PROXY_IPS:-127.0.0.1}
+      SENSOGRID_MODE: ${SENSOGRID_MODE:-ble}
+      SENSOGRID_BLE_CONCURRENCY: ${SENSOGRID_BLE_CONCURRENCY:-10}
+      SENSOGRID_DATA_DIR: /app/data
+      SENSOGRID_STATIC_DIR: /app/static
+      SENSOGRID_INFLUX_URL: http://influxdb:8181
+      SENSOGRID_INFLUX_DATABASE: ${SENSOGRID_INFLUX_DATABASE:-sensogrid}
+      SENSOGRID_INFLUX_TOKEN: ${SENSOGRID_INFLUX_TOKEN:?Run python scripts/bootstrap.py first}
+      SENSOGRID_SECURE_COOKIES: ${SENSOGRID_SECURE_COOKIES:-false}
+      SENSOGRID_VAPID_PRIVATE_KEY: ${SENSOGRID_VAPID_PRIVATE_KEY:-}
+      SENSOGRID_VAPID_PUBLIC_KEY: ${SENSOGRID_VAPID_PUBLIC_KEY:-}
+      SENSOGRID_VAPID_SUBJECT: ${SENSOGRID_VAPID_SUBJECT:-mailto:admin@example.invalid}
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+  influxdb:
+    image: influxdb:3.12.0-core
+    restart: unless-stopped
+    command:
+      - influxdb3
+      - serve
+      - --node-id=sensogrid
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3
+      - --admin-token-file=/run/secrets/influx_admin
+      - --disable-authz=health,ping
+      - --disable-telemetry-upload
+    volumes:
+      - influx_data:/var/lib/influxdb3
+    secrets:
+      - influx_admin
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+secrets:
+  influx_admin:
+    file: .secrets/influxdb-admin.json
+volumes:
+  app_data:
+  influx_data:

@@ -1,0 +1,5 @@
+# Native Windows app uses the host Bluetooth adapter; only InfluxDB runs in Docker.
+services:
+  influxdb:
+    ports:
+      - "127.0.0.1:8181:8181"

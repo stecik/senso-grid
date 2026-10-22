@@ -1,0 +1,27 @@
+{"time": "2026-10-22T15:47:52.915842+00:00", "event": "scan_start"}
+{"time": "2026-10-22T15:47:57.285213+00:00", "event": "advertisement", "name": "LT_7506", "address": "02:00:00:5E:00:03", "rssi": -61}
+{"time": "2026-10-22T15:47:57.286527+00:00", "event": "advertisement", "name": "LT_7506", "address": "02:00:00:5E:00:03", "rssi": -61}
+{"time": "2026-10-22T15:48:03.292387+00:00", "event": "advertisement", "name": "LT_7506", "address": "02:00:00:5E:00:03", "rssi": -61}
+{"time": "2026-10-22T15:48:03.293908+00:00", "event": "advertisement", "name": "LT_7506", "address": "02:00:00:5E:00:03", "rssi": -61}
+{"time": "2026-10-22T15:48:13.139140+00:00", "event": "scan_end", "sensor_count": 1}
+{"time": "2026-10-22T15:48:13.139231+00:00", "event": "connect_start", "address": "02:00:00:5E:00:03"}
+{"time": "2026-10-22T15:48:18.224533+00:00", "event": "connected", "address": "02:00:00:5E:00:03", "name": "LT_7506", "mtu": 128}
+{"time": "2026-10-22T15:48:18.224606+00:00", "event": "service", "uuid": "00001800-0000-1000-8000-00805f9b34fb", "characteristics": [{"uuid": "00002a00-0000-1000-8000-00805f9b34fb", "handle": 2, "properties": ["read"]}, {"uuid": "00002a01-0000-1000-8000-00805f9b34fb", "handle": 4, "properties": ["read"]}]}
+{"time": "2026-10-22T15:48:18.224638+00:00", "event": "service", "uuid": "0000180a-0000-1000-8000-00805f9b34fb", "characteristics": [{"uuid": "00002a23-0000-1000-8000-00805f9b34fb", "handle": 7, "properties": ["read"]}, {"uuid": "00002a27-0000-1000-8000-00805f9b34fb", "handle": 9, "properties": ["read"]}, {"uuid": "00002a28-0000-1000-8000-00805f9b34fb", "handle": 11, "properties": ["read"]}, {"uuid": "00002a29-0000-1000-8000-00805f9b34fb", "handle": 13, "properties": ["read"]}, {"uuid": "00002a50-0000-1000-8000-00805f9b34fb", "handle": 15, "properties": ["read"]}]}
+{"time": "2026-10-22T15:48:18.224669+00:00", "event": "service", "uuid": "0000180f-0000-1000-8000-00805f9b34fb", "characteristics": [{"uuid": "00002a19-0000-1000-8000-00805f9b34fb", "handle": 18, "properties": ["read", "notify"]}]}
+{"time": "2026-10-22T15:48:18.224690+00:00", "event": "service", "uuid": "0000ffe5-0000-1000-8000-00805f9b34fb", "characteristics": [{"uuid": "0000ffe9-0000-1000-8000-00805f9b34fb", "handle": 22, "properties": ["write-without-response"]}, {"uuid": "0000ffe8-0000-1000-8000-00805f9b34fb", "handle": 24, "properties": ["notify"]}]}
+{"time": "2026-10-22T15:48:18.224711+00:00", "event": "service", "uuid": "0000fe59-0000-1000-8000-00805f9b34fb", "characteristics": [{"uuid": "8ec90001-f315-4f60-9fb8-838830daea50", "handle": 28, "properties": ["notify", "write"]}, {"uuid": "8ec90002-f315-4f60-9fb8-838830daea50", "handle": 31, "properties": ["write-without-response"]}, {"uuid": "00000003-0000-1000-8000-00805f9b34fb", "handle": 33, "properties": ["read", "write", "notify"]}]}
+{"time": "2026-10-22T15:48:18.239802+00:00", "event": "notify_enabled"}
+{"time": "2026-10-22T15:48:20.261704+00:00", "event": "query_sent", "hex": "aaaaa2000101f855", "response": false}
+{"time": "2026-10-22T15:48:20.329239+00:00", "event": "notification", "hex": "aaaaa2000600e802120100f955"}
+{"time": "2026-10-22T15:48:20.329370+00:00", "event": "frame", "command": 162, "hex": "aaaaa2000600e802120100f955"}
+{"time": "2026-10-22T15:48:20.329417+00:00", "event": "measurement", "temperature_c": 23.2, "humidity_percent": 53.0, "battery_raw": 1, "display_unit": "C"}
+{"time": "2026-10-22T15:48:24.264609+00:00", "event": "query_sent", "hex": "aaaaa2000101f855", "response": false}
+{"time": "2026-10-22T15:48:24.319104+00:00", "event": "notification", "hex": "aaaaa2000600e802120100f955"}
+{"time": "2026-10-22T15:48:24.319235+00:00", "event": "frame", "command": 162, "hex": "aaaaa2000600e802120100f955"}
+{"time": "2026-10-22T15:48:24.319281+00:00", "event": "measurement", "temperature_c": 23.2, "humidity_percent": 53.0, "battery_raw": 1, "display_unit": "C"}
+{"time": "2026-10-22T15:48:25.788900+00:00", "event": "notification", "hex": "aaaaa2000600e802080100ef55"}
+{"time": "2026-10-22T15:48:25.789032+00:00", "event": "frame", "command": 162, "hex": "aaaaa2000600e802080100ef55"}
+{"time": "2026-10-22T15:48:25.789068+00:00", "event": "measurement", "temperature_c": 23.2, "humidity_percent": 52.0, "battery_raw": 1, "display_unit": "C"}
+{"time": "2026-10-22T15:48:28.414787+00:00", "event": "notify_disabled"}
+{"time": "2026-10-22T15:48:28.414904+00:00", "event": "disconnected"}

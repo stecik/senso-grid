@@ -1,0 +1,71 @@
+{
+  "errors": [
+    {
+      "f": "/androidx/constraintlayout/core/widgets/Flow.java",
+      "line": 961,
+      "text": "/*  JADX ERROR: JadxOverflowException in pass: RegionMakerVisitor"
+    },
+    {
+      "f": "/androidx/constraintlayout/core/widgets/Flow.java",
+      "line": 972,
+      "text": "throw new UnsupportedOperationException(\"Method not decompiled: androidx.constraintlayout.core.widgets.Flow.measureAligned(androidx.constraintlayout.core.widgets.ConstraintWidget[], int, int, int, int"
+    },
+    {
+      "f": "/androidx/constraintlayout/helper/widget/MotionEffect.java",
+      "line": 134,
+      "text": "throw new UnsupportedOperationException(\"Method not decompiled: androidx.constraintlayout.helper.widget.MotionEffect.onPreSetup(androidx.constraintlayout.motion.widget.MotionLayout, java.util.HashMap)"
+    },
+    {
+      "f": "/androidx/recyclerview/widget/DiffUtil.java",
+      "line": 107,
+      "text": "/*  JADX ERROR: JadxRuntimeException in pass: RegionMakerVisitor"
+    },
+    {
+      "f": "/androidx/recyclerview/widget/DiffUtil.java",
+      "line": 134,
+      "text": "throw new UnsupportedOperationException(\"Method not decompiled: androidx.recyclerview.widget.DiffUtil.diffPartial(androidx.recyclerview.widget.DiffUtil$Callback, int, int, int, int, int[], int[], int)"
+    },
+    {
+      "f": "/androidx/recyclerview/widget/GridLayoutManager.java",
+      "line": 743,
+      "text": "/*  JADX ERROR: JadxOverflowException in pass: RegionMakerVisitor"
+    },
+    {
+      "f": "/androidx/recyclerview/widget/GridLayoutManager.java",
+      "line": 790,
+      "text": "throw new UnsupportedOperationException(\"Method not decompiled: androidx.recyclerview.widget.GridLayoutManager.SpanSizeLookup.getSpanIndex(int, int):int\");"
+    },
+    {
+      "f": "/androidx/recyclerview/widget/GridLayoutManager.java",
+      "line": 884,
+      "text": "throw new UnsupportedOperationException(\"Method not decompiled: androidx.recyclerview.widget.GridLayoutManager.onFocusSearchFailed(android.view.View, int, androidx.recyclerview.widget.RecyclerView$Rec"
+    }
+  ],
+  "apphits": [
+    "/com/ihunuo/lt/thermometer/activity/BaseActivity.java:53:startActivityForResult(new Intent(\"android.settings.LOCATION_SOURCE_SETTINGS\"), 3);",
+    "/com/ihunuo/lt/thermometer/activity/BaseActivity.java:155:startActivityForResult(new Intent(\"android.bluetooth.adapter.action.REQUEST_ENABLE\"), 4);",
+    "/com/ihunuo/lt/thermometer/activity/BaseActivity.java:163:sendBroadcast(new Intent(BROADCAST_BLE_PREPARE));",
+    "/com/ihunuo/lt/thermometer/activity/DeviceListActivity.java:99:startActivity(new Intent(\"android.bluetooth.adapter.action.REQUEST_ENABLE\"));",
+    "/com/ihunuo/lt/thermometer/activity/LaunchActivity.java:21:LaunchActivity.this.startActivity(new Intent(LaunchActivity.this, (Class<?>) MainActivity.class));",
+    "/com/ihunuo/lt/thermometer/activity/MainActivity.java:361:startActivity(new Intent(this, (Class<?>) DeviceListActivity.class));",
+    "/com/ihunuo/lt/thermometer/activity/MainActivity.java:366:MainActivity.this.startActivity(new Intent(\"android.settings.APPLICATION_DETAILS_SETTINGS\", Uri.parse(\"package:\" + MainActivity.this.getPackageName())));",
+    "/com/ihunuo/lt/thermometer/activity/MainActivity.java:373:startActivity(new Intent(this, (Class<?>) SettingActivity.class));",
+    "/com/ihunuo/lt/thermometer/activity/MainActivity.java:377:startActivity(new Intent(this, (Class<?>) DataCurvesActivity.class));",
+    "/com/ihunuo/lt/thermometer/listener/AppLifecycleListener.java:57:Intent intent = new Intent(BROADCAST_IN_FOREGROUND);",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:80:setScanRule();",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:83:private void setScanRule() {",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:119:if (name == null || !name.contains(\"LT_\")) {",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:128:MyBleManager.this.mActivity.sendBroadcast(new Intent(MyBleManager.BROADCAST_ADD_DEVICE));",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:178:MyBleManager.this.mActivity.sendBroadcast(new Intent(MyBleManager.BROADCAST_CONNECT_START));",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:205:Intent intent = new Intent(MyBleManager.BROADCAST_CONNECT_SUCCESS);",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:232:MyBleManager.this.mActivity.sendBroadcast(new Intent(MyBleManager.BROADCAST_DISCONNECT));",
+    "/com/ihunuo/lt/thermometer/manager/MyBleManager.java:335:MyBleManager.this.setWrite(bleDevice, ProtocolManager.getInstance().getTemperatureUnit());",
+    "/com/ihunuo/lt/thermometer/utils/ProtocolManager.java:32:public byte[] getTemperatureUnit() {"
+  ],
+  "urls": [
+    "/androidx/core/content/res/TypedArrayUtils.java:14:private static final String NAMESPACE = \"http://schemas.android.com/apk/res/android\";",
+    "/androidx/core/text/util/LinkifyCompat.java:60:gatherLinks(arrayList, spannable, PatternsCompat.AUTOLINK_WEB_URL, new String[]{\"http://\", \"https://\", \"rtsp://\"}, Linkify.sUrlMatchFilter, null);",
+    "/com/google/android/material/chip/Chip.java:58:private static final String NAMESPACE_ANDROID = \"http://schemas.android.com/apk/res/android\";",
+    "/com/google/android/material/chip/ChipDrawable.java:49:private static final String NAMESPACE_APP = \"http://schemas.android.com/apk/res-auto\";"
+  ]
+}

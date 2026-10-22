@@ -218,3 +218,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SensoGrid generated data and credentials
+node_modules/
+frontend/dist/
+.env
+.env.*
+!.env.example
+.secrets/
+data/
+*.log
+diagnostics/apk/decompiled/
+
+data-live/
+.logs/
+
+data-*/
+
+# Frontend source directory is not a Python build artifact
+!frontend/src/lib/
+!frontend/src/lib/**

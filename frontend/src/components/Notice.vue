@@ -1,0 +1,1 @@
+<script setup lang="ts">import Icon from './Icon.vue';withDefaults(defineProps<{kind?:'error'|'info'|'success'}>(),{kind:'info'})</script><template><div class="notice" :class="kind" :role="kind==='error'?'alert':'status'"><Icon :name="kind==='error'?'warning':kind==='success'?'check':'sensor'" /><div><slot /></div></div></template>

@@ -10,7 +10,7 @@ export function chartSeries(points:HistoryPoint[],rooms:{id:string;name:string}[
   return {
    id:id+'-'+kind,name:(room?.name??id)+(metric==='both'?' · '+options.labels[kind]:''),
    type:'line' as const,yAxisIndex:metric==='both'&&kind==='humidity'?1:0,
-   showSymbol:false,connectNulls:false,
+   showSymbol:false,connectNulls:true,
    lineStyle:{width:2,type:kind==='humidity'?'dashed' as const:'solid' as const,color},
    itemStyle:{color},emphasis:{focus:'series' as const},
    tooltip:{valueFormatter:(value:unknown)=>{const n=Array.isArray(value)?value[1]:value;return typeof n==='number'?n.toFixed(1)+' '+unit:'—'}},

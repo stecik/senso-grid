@@ -1,0 +1,11 @@
+[Unit]
+Description=Check SensoGrid BLE recovery once a minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=sensogrid-ble-rescue.service
+
+[Install]
+WantedBy=timers.target

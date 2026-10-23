@@ -13,7 +13,7 @@ describe('combined history chart',()=>{
   expect(series[0]!.lineStyle.color).toBe(series[1]!.lineStyle.color)
   expect(series[0]!.data.map(p=>p[1])).toEqual([68,null,71.6])
   expect(series[1]!.data.map(p=>p[1])).toEqual([60,null,50])
-  expect(series.every(s=>s.connectNulls===false)).toBe(true)
+  expect(series.every(s=>s.connectNulls===true)).toBe(true)
  })
  it('uses the same styles, colors and units when displaying each metric separately',()=>{
   const both=chartSeries(points,rooms,['r'],'both',options)

@@ -85,6 +85,23 @@ Windows Docker Desktop nenahrazuje hostitelský BlueZ. Windows nativní Bleak je
 
 V Nastavení spusť hledání, přidej konkrétní LT_ senzor a přiřaď místnost. Neprobíhá automatické párování cizích zařízení. Nový senzor dědí globální interval (výchozí 900 s); vlastní override lze zrušit null přes API.
 
+### Dočasná oprava BlueZ na HomeServeru (23. 10. 2026)
+
+**Pozdější nález při BLE benchmarku: 23. 10. v 11:25:26 CEST se BlueZ automaticky restartoval i s tímto balíkem, zatímco produkční aplikace byla zastavená. Backport proto nelze považovat za ověřené úplné řešení. Systémové logy potvrzují SIGSEGV; odpovídající debug symboly ukazují na gatt_db_attribute_write. Přesný mechanismus zatím určen není.**
+
+Při opakovaném čtení LT senzorů padá na HomeServeru `bluetoothd` během GATT discovery. Základ: Debian 13 amd64, kernel `6.12.96+deb13-amd64`, BlueZ `5.82-1.1`, adaptér Realtek `0bda:b85b`; aplikace používá Bleak `3.0.2` a dbus-fast `5.2.0`.
+
+Dočasný lokální balík **`bluez 5.82-1.1+sensogrid1`** zachovává Debian build a přidává dvě upstream opravy z 19. 10. 2026:
+
+- [`6cdb936ebb6a3906062605883470d6b3a4e8c89e`](https://github.com/bluez/bluez/commit/6cdb936ebb6a3906062605883470d6b3a4e8c89e): oznámení odstranění i neaktivní GATT služby, aby v discovery nezůstal uvolněný ukazatel.
+- [`a338533f913bf42b267aeba30f1344d85459c13c`](https://github.com/bluez/bluez/commit/a338533f913bf42b267aeba30f1344d85459c13c): zabránění dvojímu zařazení služby do fronty discovery.
+
+**Nasazeno 23. 10. 2026 v 10:23:49 CEST.** Build, 201 upstream testů a regresní test prošly. V 10:25:40 CEST ověřeno všech 5 nových BLE měření po nasazení, žádný nedostupný senzor a NRestarts=0. Jde o krátkou kontrolu; noční stabilita zatím ověřena není. Postup, testy a evidence jsou v [diagnostics/bluez-5.82-fixes/README.md](diagnostics/bluez-5.82-fixes/README.md), rozbor výpadku v [docs/incident-2026-10-23-bluez.md](docs/incident-2026-10-23-bluez.md). Restart BlueZ obnovil měření jen dočasně; tato oprava cílí na chybu životnosti GATT služeb. Trvalou stabilitu je potřeba ověřit delším během všech pěti senzorů.
+
+Balíky a návratová verze jsou na hostiteli v `/home/marek/sensogrid-bluez-5.82-fix-20261023/artifacts/`. Instalátor zálohuje konfiguraci a párovací stav Bluetooth do neveřejného adresáře `backup-<UTC čas>`. Krátce zastaví pouze SensoGrid a Bluetooth; InfluxDB a data aplikace zachová. Nezavádí automatické restartování BlueZ ani oprávnění webového kontejneru spravovat hostitele.
+
+**Pozdější odstranění:** až distribuční BlueZ prokazatelně obsahuje obě opravy, přejdi zpět na konkrétní ověřenou distribuční verzi podle podrobného návodu. Samotné vyšší číslo verze není důkaz; vydání 5.87 těmto commitům předcházelo. Není nastaven `apt hold` ani pinning, ale přípona `+sensogrid1` může být řazena výše než další aktualizace stejného Debian základu, proto návrat zkontroluj ručně. Patche, pomocné skripty a tuto sekci odeber až po ověřeném návratu a stabilním provozu; do té doby ponech původní balík `5.82-1.1` pro rollback.
+
 ### Portainer
 
 Sestav a označ image z repozitáře, případně ho nahraj do vlastní registry. Portainer obvykle nesestavuje Dockerfile při vložení samotného YAML; použij již sestavený image (SENSOGRID_IMAGE). Pro Git stack musí existovat .secrets/influxdb-admin.json na hostu přístupném správci stacku. Vlož proměnné z lokální .env do prostředí stacku. Pro BLE použij sloučenou konfiguraci compose.yaml + compose.ble.yaml a bind /run/dbus.
@@ -175,4 +192,14 @@ Sběr BLE při chybě provede celkem tři pokusy s prodlevami 1 a 2 sekundy. Po 
 
 Senzory v Nastavení tvoří jediný seznam podle MAC adresy. Uložený název, ID a přiřazení mají přednost před BLE názvem; opakované hledání nevytváří další záznam. MAC se porovnává bez ohledu na velikost písmen, dvojtečky, pomlčky a mezery; API brání duplicitní registraci.
 
-Sběr i náhledy používají asynchronní čtení. Limit souběžných BLE spojení nastavuje `SENSOGRID_BLE_CONCURRENCY` (1–10, výchozí 10); konkrétní adaptér/Windows může skutečná spojení omezovat. Při problémech lze limit snížit. Stejná MAC se nikdy nečte dvěma spojeními současně; scan se provádí odděleně od připojených klientů. Nativní test 5 senzorů uspěl, ale v tomto běhu byl pozorován pouze jeden současně plně navázaný GATT klient; deset fyzických spojení nebylo ověřeno. Viz [BleakClient](https://bleak.readthedocs.io/en/latest/api/client.html).
+Sběr i náhledy používají asynchronní čtení. Limit souběžných BLE spojení nastavuje `SENSOGRID_BLE_CONCURRENCY` (1–10, výchozí 2); konkrétní adaptér/Windows může skutečná spojení omezovat. Při problémech lze limit snížit. Stejná MAC se nikdy nečte dvěma spojeními současně; scan se provádí odděleně od připojených klientů. Nativní test 5 senzorů uspěl, ale v tomto běhu byl pozorován pouze jeden současně plně navázaný GATT klient; deset fyzických spojení nebylo ověřeno. Viz [BleakClient](https://bleak.readthedocs.io/en/latest/api/client.html).
+
+## BLE benchmark Debian / Windows — 23. 10. 2026
+
+[Celý report a výsledky po senzorech](docs/ble-benchmark-2026-10-23.md). Debian: nejlepší pilotní výsledek dvě současná čtení (86 %). Windows: nejvíce dodaných vzorků při limitu pět (80 %), ale Obývák už chyběl a reálně byla dostupná pouze čtyři zařízení. Linuxový profil D obsahuje potvrzený další pád BlueZ 5.82-1.1+sensogrid1; backport stabilitu nezajistil. Produkční retry/souběh se při experimentu neměnily.
+
+## Záchranný restart Bluetooth — 23. 10. 2026
+
+Výchozí souběh BLE je nyní 2. Historie propojuje chybějící úseky čarou mezi skutečnými vzorky; žádné náhradní vzorky se neukládají a statistiky se nemění.
+
+Volitelný [hostitelský systemd timer](diagnostics/ble-rescue/README.md) restartuje pouze bluetooth.service, pokud všechny zapnuté senzory přestanou dodávat data nejméně na 10 minut (nebo trojnásobek nejdelšího intervalu měření). Stejná ochranná lhůta platí po startu aplikace. Další pokus nejdříve za 30 minut; jednotlivý nedostupný senzor restart nevyvolá. Instalace vyžaduje sudo; aplikace zůstává bez root oprávnění. Restart krátce přeruší i ostatní Bluetooth spojení hostitele. Jde o dočasnou záchranu, ne opravu příčiny pádu BlueZ 5.82-1.1+sensogrid1.

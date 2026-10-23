@@ -1,0 +1,14 @@
+[Unit]
+Description=SensoGrid complete BLE outage recovery
+After=docker.service bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/sensogrid/bluez_rescue.py
+StateDirectory=sensogrid-ble-rescue
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX

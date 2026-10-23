@@ -11,7 +11,10 @@ class _Driver:
     protocol = "lt_thermometer"
 
     async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
-        return []
+        return [
+            {"address": address, "rssi": -60}
+            for address in ["AA:BB", "AA:BB:CC:DD:EE:FF", *[f"AA:{i:02X}" for i in range(12)]]
+        ]
 
     async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
         raise NotImplementedError
@@ -164,7 +167,7 @@ def test_reassignment_hides_old_live_reading(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_preview_retries_four_times_with_backoff_then_succeeds(
+async def test_preview_retries_once_with_backoff_then_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     delays = []
@@ -178,11 +181,11 @@ async def test_preview_retries_four_times_with_backoff_then_succeeds(
         calls = 0
 
         async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
-            return []
+            return [{"address": "AA:BB", "rssi": -60}]
 
         async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             self.calls += 1
-            if self.calls < 5:
+            if self.calls < 2:
                 raise TimeoutError("Temporary radio loss")
             return {
                 "temperature": 22.4,
@@ -196,8 +199,8 @@ async def test_preview_retries_four_times_with_backoff_then_succeeds(
     runtime.driver = driver
     result = await runtime.preview_sensor("AA:BB")
     assert result["temperature"] == 22.4
-    assert driver.calls == 5
-    assert delays == [1, 2, 4, 8]
+    assert driver.calls == 2
+    assert delays == [1]
 
 
 def test_last_known_battery_zero_survives_a_later_optional_read_failure(tmp_path: Path) -> None:
@@ -316,7 +319,7 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
 
 
 @pytest.mark.asyncio
-async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(
+async def test_two_failed_reads_preserve_last_sample_and_stop_retrying(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from sensogrid.db import Database
@@ -345,7 +348,7 @@ async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(
         calls = 0
 
         async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
-            return []
+            return [{"address": "AA:BB", "rssi": -60}]
 
         async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             self.calls += 1
@@ -355,8 +358,8 @@ async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(
     runtime.driver = driver
     with pytest.raises(TimeoutError):
         await runtime.preview_sensor("AA:BB")
-    assert driver.calls == 5
-    assert delays == [1, 2, 4, 8]
+    assert driver.calls == 2
+    assert delays == [1]
     assert runtime._latest[sensor_id] == sample
     assert runtime.read_states[sensor_id] == "unavailable"
     assert sensor_id in Runtime(settings(tmp_path, "ble"), db).unavailable_sensors
@@ -372,6 +375,10 @@ async def test_preview_reads_distinct_devices_concurrently_with_limit_ten(tmp_pa
     release = asyncio.Event()
 
     class Driver(_Driver):
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
+            await asyncio.sleep(0)
+            return await super().discover(timeout)
+
         async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             nonlocal active, peak
             active += 1

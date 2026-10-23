@@ -8,7 +8,7 @@ from .address import address_key
 
 
 class BLERadio:
-    def __init__(self, concurrency: int = 10) -> None:
+    def __init__(self, concurrency: int = 1) -> None:
         self.limit = concurrency
         self._slots = asyncio.Semaphore(concurrency)
         self._scan_lock = asyncio.Lock()

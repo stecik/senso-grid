@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "operation": "GATT Device Information reads and LT A4 version query; no firmware writes",
+  "query_hex": "aaaaa400020000fa55",
+  "source": "Windows Bleak, two scans of 12 and 35 seconds; sequential reads",
+  "sensors": [
+    {
+      "utc": "2026-10-23T18:19:21.630164+00:00",
+      "address": "02:00:00:5E:00:06",
+      "room": "Spiz",
+      "name": "LT_4AF3",
+      "rssi": -81,
+      "services": [
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+        "0000180f-0000-1000-8000-00805f9b34fb",
+        "0000ffe5-0000-1000-8000-00805f9b34fb",
+        "0000fe59-0000-1000-8000-00805f9b34fb"
+      ],
+      "hardware": {
+        "text": "1.0.0.0",
+        "hex": "312e302e302e30"
+      },
+      "software": {
+        "text": "2.0.0.9",
+        "hex": "322e302e302e39"
+      },
+      "manufacturer": {
+        "text": "Beijing OnMicro Electronics Co., Ltd.",
+        "hex": "4265696a696e67204f6e4d6963726f20456c656374726f6e69637320436f2e2c204c74642e"
+      },
+      "pnp_id": {
+        "text": "\u0001\u0002\u0003\u0004\u0005\u0006\u0007",
+        "hex": "01020304050607"
+      },
+      "lt_version": {
+        "text": "V2.3",
+        "hex": "56322e33"
+      }
+    },
+    {
+      "utc": "2026-10-23T18:21:09.027915+00:00",
+      "address": "02:00:00:5E:00:05",
+      "room": "Obyvak",
+      "name": "LT_831C",
+      "rssi": -71,
+      "services": [
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+        "0000180f-0000-1000-8000-00805f9b34fb",
+        "0000ffe5-0000-1000-8000-00805f9b34fb",
+        "0000fe59-0000-1000-8000-00805f9b34fb"
+      ],
+      "hardware": {
+        "text": "1.0.0.0",
+        "hex": "312e302e302e30"
+      },
+      "software": {
+        "text": "2.0.0.9",
+        "hex": "322e302e302e39"
+      },
+      "manufacturer": {
+        "text": "Beijing OnMicro Electronics Co., Ltd.",
+        "hex": "4265696a696e67204f6e4d6963726f20456c656374726f6e69637320436f2e2c204c74642e"
+      },
+      "pnp_id": {
+        "text": "\u0001\u0002\u0003\u0004\u0005\u0006\u0007",
+        "hex": "01020304050607"
+      },
+      "lt_version": {
+        "text": "V2.3",
+        "hex": "56322e33"
+      }
+    },
+    {
+      "utc": "2026-10-23T18:21:17.113847+00:00",
+      "address": "02:00:00:5E:00:03",
+      "room": "Kuchyne",
+      "name": "LT_7506",
+      "rssi": -77,
+      "services": [
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+        "0000180f-0000-1000-8000-00805f9b34fb",
+        "0000ffe5-0000-1000-8000-00805f9b34fb",
+        "0000fe59-0000-1000-8000-00805f9b34fb"
+      ],
+      "hardware": {
+        "text": "1.0.0.0",
+        "hex": "312e302e302e30"
+      },
+      "software": {
+        "text": "2.0.0.9",
+        "hex": "322e302e302e39"
+      },
+      "manufacturer": {
+        "text": "Beijing OnMicro Electronics Co., Ltd.",
+        "hex": "4265696a696e67204f6e4d6963726f20456c656374726f6e69637320436f2e2c204c74642e"
+      },
+      "pnp_id": {
+        "text": "\u0001\u0002\u0003\u0004\u0005\u0006\u0007",
+        "hex": "01020304050607"
+      },
+      "lt_version": {
+        "text": "V2.3",
+        "hex": "56322e33"
+      }
+    },
+    {
+      "utc": "2026-10-23T18:21:19.611680+00:00",
+      "address": "02:00:00:5E:00:04",
+      "room": "Loznice",
+      "name": "LT_5A0B",
+      "rssi": -92,
+      "services": [
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+        "0000180f-0000-1000-8000-00805f9b34fb",
+        "0000ffe5-0000-1000-8000-00805f9b34fb",
+        "0000fe59-0000-1000-8000-00805f9b34fb"
+      ],
+      "hardware": {
+        "text": "1.0.0.0",
+        "hex": "312e302e302e30"
+      },
+      "software": {
+        "text": "2.0.0.9",
+        "hex": "322e302e302e39"
+      },
+      "manufacturer": {
+        "text": "Beijing OnMicro Electronics Co., Ltd.",
+        "hex": "4265696a696e67204f6e4d6963726f20456c656374726f6e69637320436f2e2c204c74642e"
+      },
+      "pnp_id": {
+        "text": "\u0001\u0002\u0003\u0004\u0005\u0006\u0007",
+        "hex": "01020304050607"
+      },
+      "lt_version": {
+        "text": "V2.3",
+        "hex": "56322e33"
+      }
+    },
+    {
+      "utc": "2026-10-23T18:21:23.997532+00:00",
+      "address": "02:00:00:5E:00:02",
+      "room": "Koupelna",
+      "name": "LT_530B",
+      "rssi": -97,
+      "services": [
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+        "0000180f-0000-1000-8000-00805f9b34fb",
+        "0000ffe5-0000-1000-8000-00805f9b34fb",
+        "0000fe59-0000-1000-8000-00805f9b34fb"
+      ],
+      "hardware": {
+        "text": "1.0.0.0",
+        "hex": "312e302e302e30"
+      },
+      "software": {
+        "text": "2.0.0.9",
+        "hex": "322e302e302e39"
+      },
+      "manufacturer": {
+        "text": "Beijing OnMicro Electronics Co., Ltd.",
+        "hex": "4265696a696e67204f6e4d6963726f20456c656374726f6e69637320436f2e2c204c74642e"
+      },
+      "pnp_id": {
+        "text": "\u0001\u0002\u0003\u0004\u0005\u0006\u0007",
+        "hex": "01020304050607"
+      },
+      "lt_version": {
+        "text": "V2.3",
+        "hex": "56322e33"
+      }
+    }
+  ]
+}

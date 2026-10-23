@@ -286,7 +286,7 @@ def test_spa_does_not_capture_api_or_traversal(tmp_path: Path) -> None:
 def test_global_interval_inheritance_and_overrides(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     sensor_id = sensor["id"]
-    assert sensor["sample_interval_seconds"] == 900 and sensor["interval_override_seconds"] is None
+    assert sensor["sample_interval_seconds"] == 300 and sensor["interval_override_seconds"] is None
     assert (
         logged.patch("/api/system/settings", json={"sample_interval_seconds": 300}).status_code
         == 200
@@ -423,7 +423,7 @@ def test_discovered_sensor_preview_does_not_register_sensor(logged: TestClient) 
         protocol = "lt_thermometer"
 
         async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
-            return []
+            return [{"address": "AA:BB", "rssi": -60}]
 
         async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             if address != "AA:BB":

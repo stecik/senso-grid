@@ -18,7 +18,7 @@ from .config import Settings
 from .timeseries import InfluxStore, aggregate_points, bucket_start, utc
 
 logger = logging.getLogger(__name__)
-READ_ATTEMPTS = 5
+READ_ATTEMPTS = 2
 
 
 class RuntimeDatabase(Protocol):
@@ -81,9 +81,13 @@ class Runtime:
         self.unavailable_sensors: set[str] = set(db.config("unavailable_sensors", []))
         self._tasks: list[asyncio.Task[None]] = []
         self._radio = BLERadio(settings.ble_concurrency)
-        self._last_scan = 0.0
+        self._discovery_lock = asyncio.Lock()
+        self._last_scan = -float("inf")
+        self._scan_results: list[dict[str, Any]] = []
         self._last_poll: dict[str, float] = {}
         self._retry_after: dict[str, float] = {}
+        self._read_failures: dict[str, int] = {}
+        self._read_locks: dict[str, asyncio.Lock] = {}
         self._outbox = Path(settings.data_dir) / "outbox"
         self._db_ready = False
 
@@ -155,12 +159,16 @@ class Runtime:
     async def _discover_devices(
         self, timeout: float = 15, newer_than: float | None = None
     ) -> list[dict[str, Any]]:
-        async with self._radio.scan():
+        async with self._discovery_lock:
             if newer_than is not None and self._last_scan > newer_than:
-                return []
-            devices = await self.driver.discover(timeout=timeout)
-            self._last_scan = time.monotonic()
-            return devices
+                return self._scan_results
+            async with self._radio.scan():
+                self._scan_results = []
+                self._last_scan = -float("inf")
+                devices = await self.driver.discover(timeout=timeout)
+                self._scan_results = devices
+                self._last_scan = time.monotonic()
+                return devices
 
     async def preview_sensor(self, address: str) -> dict[str, Any]:
         if self.settings.mode == "demo":
@@ -186,15 +194,37 @@ class Runtime:
         self._publish_reading(address, row)
         return row
 
-    async def _read_with_retry(self, address: str, sensor_id: str | None = None) -> dict[str, Any]:
+    def _record_read_failure(self, sensor_id: str) -> None:
+        failures = min(self._read_failures.get(sensor_id, 0) + 1, 3)
+        self._read_failures[sensor_id] = failures
+        self._retry_after[sensor_id] = time.monotonic() + 300 * 2 ** (failures - 1)
+        self.read_states[sensor_id] = "unavailable"
+        self.unavailable_sensors.add(sensor_id)
+        self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
+
+    async def _read_with_retry(
+        self, address: str, sensor_id: str | None = None, *, scanned_after: float | None = None
+    ) -> dict[str, Any]:
         address = canonical_address(address)
-        started = time.monotonic()
+        lock = self._read_locks.setdefault(address_key(address), asyncio.Lock())
+        async with lock:
+            return await self._read_attempts(address, sensor_id, scanned_after=scanned_after)
+
+    async def _read_attempts(
+        self, address: str, sensor_id: str | None, *, scanned_after: float | None
+    ) -> dict[str, Any]:
+        started = time.monotonic() if scanned_after is None else scanned_after
+        if sensor_id and self._retry_after.get(sensor_id, 0) > time.monotonic():
+            raise LookupError("Sensor is cooling down after failed reads")
         for attempt in range(READ_ATTEMPTS):
             if sensor_id:
                 self.read_states[sensor_id] = "reading" if attempt == 0 else "retrying"
             try:
-                if attempt:
-                    await self._discover_devices(timeout=5, newer_than=started)
+                devices = await self._discover_devices(
+                    timeout=5 if attempt else 15, newer_than=started
+                )
+                if not any(address_key(d["address"]) == address_key(address) for d in devices):
+                    raise LookupError("Sensor not present in fresh scan")
                 async with self._radio.read(address):
                     return await self.driver.read_current(address)
             except asyncio.CancelledError:
@@ -210,14 +240,12 @@ class Runtime:
                         exc_info=True,
                     )
                     if sensor_id:
-                        self.read_states[sensor_id] = "unavailable"
-                        self.unavailable_sensors.add(sensor_id)
-                        self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
-                        self._retry_after[sensor_id] = time.monotonic() + 30
+                        self._record_read_failure(sensor_id)
                     raise
                 if sensor_id:
                     self.read_states[sensor_id] = "retrying"
                 delay = 2**attempt
+                started = time.monotonic()
                 logger.info(
                     "BLE retry address=%s attempt=%s delay=%s reason=%s",
                     address,
@@ -262,6 +290,7 @@ class Runtime:
         self.db.note_seen(sensor["id"], sample["timestamp"])
         self._last_poll[sensor["id"]] = time.monotonic()
         self._retry_after.pop(sensor["id"], None)
+        self._read_failures.pop(sensor["id"], None)
         self.read_states[sensor["id"]] = "ready"
         self.unavailable_sensors.discard(sensor["id"])
         self.unavailable_sensors.intersection_update(ids)
@@ -405,7 +434,12 @@ class Runtime:
                 self.state["collector"] = "scanning"
                 for sensor in due:
                     self.read_states[sensor["id"]] = "reading"
-                devices = await self._discover_devices()
+                try:
+                    devices = await self._discover_devices()
+                except Exception:
+                    for sensor in due:
+                        self._record_read_failure(sensor["id"])
+                    raise
                 rssi = {d["address"].upper(): d["rssi"] for d in devices}
 
                 async def poll(
@@ -424,17 +458,23 @@ class Runtime:
                     try:
                         if sensor["protocol"] != self.driver.protocol:
                             raise ValueError("Unsupported sensor protocol")
-                        row = await self._read_with_retry(sensor["address"], sensor["id"])
+                        row = await self._read_with_retry(
+                            sensor["address"], sensor["id"], scanned_after=cycle_now
+                        )
                         self._publish_reading(
                             sensor["address"], row, cycle_rssi.get(sensor["address"].upper())
                         )
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        self._retry_after[sensor["id"]] = time.monotonic() + 30
+                        if self._retry_after.get(sensor["id"], 0) <= time.monotonic():
+                            self._record_read_failure(sensor["id"])
                         self.read_states[sensor["id"]] = "unavailable"
+                        delay = max(
+                            0, math.ceil(self._retry_after[sensor["id"]] - time.monotonic())
+                        )
                         self.state["last_error"] = (
-                            f"Sensor read failed after {READ_ATTEMPTS} attempts; another cycle is scheduled in 30 seconds"
+                            f"Sensor read failed after {READ_ATTEMPTS} attempts; another cycle is scheduled in {delay} seconds"
                         )
                         logger.warning(
                             "Sensor %s read failed after retries: %s",

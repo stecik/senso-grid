@@ -72,6 +72,7 @@ class LTDriver:
         return dict(self._battery.get(address, {}))
 
     async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
+        self.devices = {}
         devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
         found = []
         for device, adv in devices.values():

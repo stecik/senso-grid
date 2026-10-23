@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     influx_url: str = "http://localhost:8181"
     influx_token: str = ""
     influx_database: str = "sensogrid"
-    sample_interval_seconds: int = Field(900, ge=10, le=86400)
+    sample_interval_seconds: int = Field(300, ge=10, le=86400)
     stale_after_seconds: int = Field(1800, ge=30, le=604800)
-    ble_concurrency: int = Field(2, ge=1, le=10)
+    ble_concurrency: int = Field(1, ge=1, le=10)
     diagnostics: bool = False
     host_diagnostics_dir: Path = Path("/app/host-diagnostics")
     vapid_private_key: str = ""

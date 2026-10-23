@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "archive_filename": "sensogrid-diagnostics-2026-10-23T17-52-35-533Z.zip",
+  "archive_created_utc": "2026-10-23T18:44:52.017057+00:00",
+  "host_created_utc": "2026-10-23T18:44:32.836525+00:00",
+  "configuration": {
+    "mode": "ble",
+    "ble_concurrency": 2,
+    "read_attempts": 5,
+    "sample_interval_seconds": 60,
+    "stale_after_seconds": 1000
+  },
+  "runtime": {
+    "collector": "degraded",
+    "storage": "ready",
+    "last_error": "Sensor read failed after 5 attempts; another cycle is scheduled in 30 seconds"
+  },
+  "tasks": [
+    {
+      "name": "influx-writer",
+      "done": false,
+      "cancelled": false,
+      "stack": [
+        {
+          "file": "runtime.py",
+          "function": "_flush_loop",
+          "line": 323
+        }
+      ]
+    },
+    {
+      "name": "ble-collector",
+      "done": false,
+      "cancelled": false,
+      "stack": [
+        {
+          "file": "runtime.py",
+          "function": "_collect_loop",
+          "line": 413
+        }
+      ]
+    }
+  ],
+  "outbox_pending": 0,
+  "sensors": [
+    {
+      "name": "Spíž",
+      "address": "02:00:00:5E:00:06",
+      "last_seen": "2026-10-23T18:44:20.377567+00:00",
+      "read_state": "ready",
+      "unavailable": false,
+      "last_reading": {
+        "timestamp": "2026-10-23T18:44:20.377567+00:00",
+        "temperature": 21.3,
+        "humidity": 67,
+        "rssi": -82,
+        "battery_raw": 1,
+        "battery_percent": 90,
+        "battery_timestamp": "2026-10-23T17:49:40.437955+00:00"
+      }
+    },
+    {
+      "name": "Obývák",
+      "address": "02:00:00:5E:00:05",
+      "last_seen": "2026-10-23T18:23:23.732903+00:00",
+      "read_state": "unavailable",
+      "unavailable": true,
+      "last_reading": {
+        "timestamp": "2026-10-23T18:23:23.732903+00:00",
+        "temperature": 23.1,
+        "humidity": 45,
+        "rssi": -68,
+        "battery_raw": 1,
+        "battery_percent": 90,
+        "battery_timestamp": "2026-10-23T17:49:34.476822+00:00"
+      }
+    },
+    {
+      "name": "Kuchyně",
+      "address": "02:00:00:5E:00:03",
+      "last_seen": "2026-10-23T18:23:48.821936+00:00",
+      "read_state": "unavailable",
+      "unavailable": true,
+      "last_reading": {
+        "timestamp": "2026-10-23T18:23:48.821936+00:00",
+        "temperature": 22.3,
+        "humidity": 46,
+        "rssi": -76,
+        "battery_raw": 1,
+        "battery_percent": 90,
+        "battery_timestamp": "2026-10-23T17:50:07.980925+00:00"
+      }
+    },
+    {
+      "name": "Ložnice",
+      "address": "02:00:00:5E:00:04",
+      "last_seen": "2026-10-23T18:43:28.136910+00:00",
+      "read_state": "ready",
+      "unavailable": false,
+      "last_reading": {
+        "timestamp": "2026-10-23T18:43:28.136910+00:00",
+        "temperature": 21.9,
+        "humidity": 46,
+        "rssi": -92,
+        "battery_raw": 1,
+        "battery_percent": 90,
+        "battery_timestamp": "2026-10-23T17:49:54.705951+00:00"
+      }
+    },
+    {
+      "name": "Koupelna",
+      "address": "02:00:00:5E:00:02",
+      "last_seen": "2026-10-23T18:44:37.489796+00:00",
+      "read_state": "ready",
+      "unavailable": false,
+      "last_reading": {
+        "timestamp": "2026-10-23T18:44:37.489796+00:00",
+        "temperature": 22.6,
+        "humidity": 43,
+        "rssi": -86,
+        "battery_raw": 1,
+        "battery_percent": 90,
+        "battery_timestamp": "2026-10-23T17:50:50.396709+00:00"
+      }
+    }
+  ],
+  "bluetooth_service": "Result=success\nNRestarts=16\nExecMainPID=2177405\nExecMainStatus=0\nLimitCORE=infinity\nActiveState=active\nSubState=running\nActiveEnterTimestamp=Fri 2026-10-23 20:39:15 CEST\n",
+  "bluetooth_crash_lines": [
+    "2026-10-23T19:31:41+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:04:13+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:08:32+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:13:46+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:15:53+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:33:57+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV",
+    "2026-10-23T20:39:14+02:00 HomeServer systemd[1]: bluetooth.service: Main process exited, code=killed, status=11/SEGV"
+  ],
+  "kernel_journal": "2026-10-23T20:39:14+02:00 HomeServer kernel: traps: bluetoothd[2168631] general protection fault ip:55df0b866c1f sp:7ffc3b1b63e0 error:0 in bluetoothd[f7c1f,55df0b793000+100000]\n2026-10-23T20:33:57+02:00 HomeServer kernel: bluetoothd[2138667]: segfault at 40 ip 00005626cee18c22 sp 00007ffedeaeb160 error 4 in bluetoothd[f7c22,5626ced45000+100000] likely on CPU 3 (core 3, socket 0)\n2026-10-23T20:26:06+02:00 HomeServer kernel: Bluetooth: hci0: Opcode 0x200e failed: -16\n2026-10-23T20:24:57+02:00 HomeServer kernel: Bluetooth: hci0: Opcode 0x200e failed: -16\n2026-10-23T20:15:53+02:00 HomeServer kernel: bluetoothd[2135232]: segfault at 561d64db871f ip 00005617efeb6c1f sp 00007ffdb4c4be10 error 4 in bluetoothd[f7c1f,5617efde3000+100000] likely on CPU 3 (core 3, socket 0)\n2026-10-23T20:13:46+02:00 HomeServer kernel: traps: bluetoothd[2126483] general protection fault ip:7f3ab8c27b49 sp:7fff09266fb8 error:0 in libc.so.6[162b49,7f3ab8aed000+163000]\n2026-10-23T20:08:32+02:00 HomeServer kernel: traps: bluetoothd[2119317] general protection fault ip:56139b4b0c1f sp:7ffc568515a0 error:0 in bluetoothd[f7c1f,56139b3dd000+100000]\n2026-10-23T20:04:13+02:00 HomeServer kernel: bluetoothd[2064733]: segfault at 0 ip 000055bc1b412c1f sp 00007ffd20043f00 error 4 in bluetoothd[f7c1f,55bc1b33f000+100000] likely on CPU 1 (core 1, socket 0)\n2026-10-23T20:00:05+02:00 HomeServer kernel: Bluetooth: hci0: Opcode 0x200e failed: -16\n2026-10-23T19:31:41+02:00 HomeServer kernel: traps: bluetoothd[1886427] general protection fault ip:7f21d71bf2a2 sp:7ffff42e1790 error:0 in libc.so.6[a32a2,7f21d7144000+163000]\n2026-10-23T19:19:28+02:00 HomeServer kernel: Bluetooth: hci0: Opcode 0x200e failed: -16\n",
+  "bluetooth_journal_truncated": true,
+  "unavailable_host_sections": [
+    "last_bluetooth_core",
+    "controller",
+    "usb"
+  ],
+  "rescue_action_messages": [],
+  "terminal_python_exception_count": 38,
+  "symbol_lookup": {
+    "method": "read-only SSH; matching debug .deb read into anonymous memfd, no extraction/install",
+    "binary_sha256": "855b151b4bfd0b3be14a6e946daa60c9e04574be651ddab1fc63f7c26a70a5d4",
+    "build_id": "2ac9eba7f42650f9b5e888a2b314cde9e6878dce",
+    "offsets": {
+      "0xf7c1f": "gatt_db_attribute_read.part.0",
+      "0xf7c22": "gatt_db_attribute_read.part.0"
+    },
+    "source_line": null
+  },
+  "windows_scans": [
+    {
+      "utc": "2026-10-23T18:49:05.389223+00:00",
+      "scan_seconds": 20,
+      "method": "Windows scan only; no connections",
+      "sensors": [
+        {
+          "address": "02:00:00:5E:00:06",
+          "room": "Spiz",
+          "seen": true,
+          "name": "LT_4AF3",
+          "rssi": -78
+        },
+        {
+          "address": "02:00:00:5E:00:05",
+          "room": "Obyvak",
+          "seen": false
+        },
+        {
+          "address": "02:00:00:5E:00:03",
+          "room": "Kuchyne",
+          "seen": false
+        },
+        {
+          "address": "02:00:00:5E:00:04",
+          "room": "Loznice",
+          "seen": true,
+          "name": "LT_5A0B",
+          "rssi": -96
+        },
+        {
+          "address": "02:00:00:5E:00:02",
+          "room": "Koupelna",
+          "seen": true,
+          "name": "LT_530B",
+          "rssi": -87
+        }
+      ]
+    },
+    {
+      "utc": "2026-10-23T18:51:14.697121+00:00",
+      "scan_seconds": 45,
+      "method": "Windows scan only; no connections",
+      "sensors": [
+        {
+          "address": "02:00:00:5E:00:06",
+          "room": "Spiz",
+          "seen": true,
+          "name": "LT_4AF3",
+          "rssi": -83
+        },
+        {
+          "address": "02:00:00:5E:00:05",
+          "room": "Obyvak",
+          "seen": false
+        },
+        {
+          "address": "02:00:00:5E:00:03",
+          "room": "Kuchyne",
+          "seen": false
+        },
+        {
+          "address": "02:00:00:5E:00:04",
+          "room": "Loznice",
+          "seen": true,
+          "name": "LT_5A0B",
+          "rssi": -84
+        },
+        {
+          "address": "02:00:00:5E:00:02",
+          "room": "Koupelna",
+          "seen": true,
+          "name": "LT_530B",
+          "rssi": -87
+        }
+      ]
+    }
+  ],
+  "user_observation": "Obyvak and Kuchyne display steady circle and no data; other sensors blink and report.",
+  "reset_followup": {
+    "user_action": "Battery removed for 10 seconds from Obyvak only; Kuchyne left unchanged",
+    "windows_scan": {
+      "utc": "2026-10-23T18:57:09.636593+00:00",
+      "scan_seconds": 20,
+      "method": "Windows scan only; no connections",
+      "sensors": [
+        {
+          "address": "02:00:00:5E:00:05",
+          "room": "Obyvak",
+          "seen": true,
+          "name": "LT_831C",
+          "rssi": -69
+        },
+        {
+          "address": "02:00:00:5E:00:03",
+          "room": "Kuchyne",
+          "seen": false
+        }
+      ]
+    },
+    "live_status": {
+      "utc": "2026-10-23T18:59:38.564108+00:00",
+      "sensors": [
+        {
+          "name": "Spíž",
+          "id": "e720cde2-e782-41a7-a5d6-02099cd8650c",
+          "last_seen": "2026-10-23T18:57:19.453701+00:00",
+          "unavailable": false,
+          "temperature": 20.6,
+          "humidity": 55
+        },
+        {
+          "name": "Obývák",
+          "id": "b696d418-3a91-4625-9977-0d1e508757c7",
+          "last_seen": "2026-10-23T18:57:46.361910+00:00",
+          "unavailable": false,
+          "temperature": 26.8,
+          "humidity": 58
+        },
+        {
+          "name": "Kuchyně",
+          "id": "bd386115-89cd-42f8-b563-19f86adce1c0",
+          "last_seen": "2026-10-23T18:23:48.821936+00:00",
+          "unavailable": true,
+          "temperature": 22.3,
+          "humidity": 46
+        },
+        {
+          "name": "Ložnice",
+          "id": "84cc62b6-2643-408f-b1e2-17f8a81b8e94",
+          "last_seen": "2026-10-23T18:58:56.200818+00:00",
+          "unavailable": false,
+          "temperature": 22,
+          "humidity": 46
+        },
+        {
+          "name": "Koupelna",
+          "id": "4279aea6-47fc-4bdc-aa41-f736e3fa780c",
+          "last_seen": "2026-10-23T18:55:16.556866+00:00",
+          "unavailable": true,
+          "temperature": 22.7,
+          "humidity": 43
+        }
+      ]
+    },
+    "influx_obyvak": [
+      {
+        "time": "2026-10-23T18:57:46.361910",
+        "temperature": 26.8,
+        "humidity": 58
+      },
+      {
+        "time": "2026-10-23T18:23:23.732903",
+        "temperature": 23.1,
+        "humidity": 45
+      }
+    ],
+    "bluetooth_restart": {
+      "previous_counter": 16,
+      "current_counter": 17,
+      "crash_cest": "2026-10-23 20:56:27",
+      "restarted_cest": "2026-10-23 20:56:28",
+      "kernel_offset": "0xf7c1f",
+      "function": "gatt_db_attribute_read.part.0",
+      "manual_restart": false
+    },
+    "interpretation": "Obyvak advertising and actual stored measurements returned; Kuchyne did not. Concurrent automatic BlueZ crash/restart confounds strict isolation. Does not prove firmware memory leak or long-term stability."
+  }
+}

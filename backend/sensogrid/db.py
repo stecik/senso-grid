@@ -3,11 +3,14 @@ import json
 import sqlite3
 import time
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 
 from .ble.address import address_key, canonical_address
+from .config import Settings
 from .schemas import Preferences
 
 DEFAULT_PLAN = {
@@ -23,14 +26,14 @@ DEFAULT_PLAN = {
 
 
 class Database:
-    def __init__(self, path: Path, settings=None) -> None:
+    def __init__(self, path: Path, settings: Settings | None = None) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.settings = settings
         self.migrate()
 
     @contextmanager
-    def connection(self):
+    def connection(self) -> Generator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
@@ -40,7 +43,7 @@ class Database:
         finally:
             conn.close()
 
-    def migrate(self):
+    def migrate(self) -> None:
         with self.connection() as c:
             version = c.execute("PRAGMA user_version").fetchone()[0]
             if version > 2:
@@ -79,24 +82,24 @@ class Database:
                 c.execute("DROP TABLE sensors_v1")
                 c.execute("PRAGMA user_version=2")
 
-    def config(self, key, default):
+    def config[T](self, key: str, default: T) -> T:
         with self.connection() as c:
             row = c.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
-    def set_config(self, key, value):
+    def set_config(self, key: str, value: Any) -> None:
         with self.connection() as c:
             c.execute(
                 "INSERT INTO config VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, json.dumps(value)),
             )
 
-    def preferences(self) -> dict:
+    def preferences(self) -> dict[str, Any]:
         return Preferences.model_validate(
             self.config("preferences", Preferences().model_dump(mode="json"))
         ).model_dump(mode="json")
 
-    def system_settings(self) -> dict:
+    def system_settings(self) -> dict[str, Any]:
         return self.config(
             "system",
             {
@@ -105,21 +108,21 @@ class Database:
             },
         )
 
-    def has_user(self):
+    def has_user(self) -> bool:
         with self.connection() as c:
             return bool(c.execute("SELECT 1 FROM users LIMIT 1").fetchone())
 
-    def user(self, username):
+    def user(self, username: str) -> dict[str, Any] | None:
         with self.connection() as c:
             r = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         return dict(r) if r else None
 
-    def create_user(self, username, password):
+    def create_user(self, username: str, password: str) -> dict[str, str | int]:
         with self.connection() as c:
             c.execute("INSERT INTO users VALUES(1,?,?)", (username, password))
         return {"id": 1, "username": username}
 
-    def add_session(self, token, expires):
+    def add_session(self, token: str, expires: float) -> None:
         with self.connection() as c:
             c.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
             c.execute(
@@ -127,7 +130,7 @@ class Database:
                 (hashlib.sha256(token.encode()).hexdigest(), expires),
             )
 
-    def session_user(self, token):
+    def session_user(self, token: str | None) -> dict[str, Any] | None:
         if not token:
             return None
         with self.connection() as c:
@@ -137,13 +140,13 @@ class Database:
             ).fetchone()
         return dict(r) if r else None
 
-    def delete_session(self, token):
+    def delete_session(self, token: str) -> None:
         with self.connection() as c:
             c.execute(
                 "DELETE FROM sessions WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),)
             )
 
-    def all_sensors(self) -> list[dict]:
+    def all_sensors(self) -> list[dict[str, Any]]:
         with self.connection() as c:
             rows = c.execute("SELECT * FROM sensors ORDER BY created_at,id").fetchall()
         default_interval = self.system_settings()["sample_interval_seconds"]
@@ -164,7 +167,7 @@ class Database:
                 (iso_timestamp, sensor_id, iso_timestamp),
             )
 
-    def rooms(self, archived=False):
+    def rooms(self, archived: bool = False) -> list[dict[str, Any]]:
         with self.connection() as c:
             return [
                 dict(r)
@@ -175,7 +178,7 @@ class Database:
                 )
             ]
 
-    def validate_room(self, c, room_id):
+    def validate_room(self, c: sqlite3.Connection, room_id: str | None) -> None:
         if (
             room_id is not None
             and not c.execute(
@@ -184,7 +187,7 @@ class Database:
         ):
             raise ValueError("Unknown room")
 
-    def add_sensor(self, data):
+    def add_sensor(self, data: dict[str, Any]) -> str:
         data = {**data, "address": canonical_address(data["address"])}
         sensor_id = str(uuid.uuid4())
         with self.connection() as c:
@@ -209,7 +212,7 @@ class Database:
             )
         return sensor_id
 
-    def patch_sensor(self, sensor_id, data):
+    def patch_sensor(self, sensor_id: str, data: dict[str, Any]) -> None:
         with self.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             if not c.execute("SELECT 1 FROM sensors WHERE id=?", (sensor_id,)).fetchone():
@@ -242,7 +245,7 @@ class Database:
                         "UPDATE config SET value=? WHERE key='floorplan'", (json.dumps(plan),)
                     )
 
-    def delete_sensor(self, sensor_id):
+    def delete_sensor(self, sensor_id: str) -> None:
         with self.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             if not c.execute("DELETE FROM sensors WHERE id=?", (sensor_id,)).rowcount:
@@ -258,10 +261,10 @@ class Database:
                     rule["enabled"] = False
                     c.execute("UPDATE rules SET data=? WHERE id=?", (json.dumps(rule), row["id"]))
 
-    def floorplan(self) -> dict:
+    def floorplan(self) -> dict[str, Any]:
         return self.config("floorplan", DEFAULT_PLAN.copy())
 
-    def validate_plan(self, c, plan):
+    def validate_plan(self, c: sqlite3.Connection, plan: dict[str, Any]) -> None:
         sensors = {r["id"]: dict(r) for r in c.execute("SELECT * FROM sensors")}
         room_ids = {r["id"] for r in plan["rooms"]}
         for s in plan["sensors"]:
@@ -270,7 +273,7 @@ class Database:
             if s["room_id"] is not None and s["room_id"] not in room_ids:
                 raise ValueError("Unknown room")
 
-    def save_floorplan(self, plan, preview=False):
+    def save_floorplan(self, plan: dict[str, Any], preview: bool = False) -> None:
         with self.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             self.validate_plan(c, plan)
@@ -300,14 +303,14 @@ class Database:
                 (json.dumps(plan),),
             )
 
-    def rules(self) -> list[dict]:
+    def rules(self) -> list[dict[str, Any]]:
         with self.connection() as c:
             return [
                 {"id": r["id"], **json.loads(r["data"])}
                 for r in c.execute("SELECT * FROM rules ORDER BY rowid")
             ]
 
-    def save_rule(self, rule, rule_id=None):
+    def save_rule(self, rule: dict[str, Any], rule_id: str | None = None) -> dict[str, Any]:
         rule_id = rule_id or str(uuid.uuid4())
         with self.connection() as c:
             if rule.get("room_id"):
@@ -337,7 +340,7 @@ class Database:
             c.execute("DELETE FROM alert_state WHERE rule_id=?", (rule_id,))
         return {"id": rule_id, **rule}
 
-    def delete_rule(self, rule_id):
+    def delete_rule(self, rule_id: str) -> None:
         with self.connection() as c:
             if not c.execute("DELETE FROM rules WHERE id=?", (rule_id,)).rowcount:
                 raise KeyError("Rule not found")
@@ -348,32 +351,32 @@ class Database:
                 (datetime.now(UTC).isoformat(), rule_id),
             )
 
-    def events(self) -> list[dict]:
+    def events(self) -> list[dict[str, Any]]:
         with self.connection() as c:
             return [
                 dict(r)
                 for r in c.execute("SELECT * FROM events ORDER BY started_at DESC LIMIT 500")
             ]
 
-    def subscriptions(self) -> list[dict]:
+    def subscriptions(self) -> list[dict[str, Any]]:
         with self.connection() as c:
             return [json.loads(r[0]) for r in c.execute("SELECT data FROM subscriptions")]
 
-    def save_subscription(self, data):
+    def save_subscription(self, data: dict[str, Any]) -> None:
         with self.connection() as c:
             c.execute(
                 "INSERT INTO subscriptions VALUES(?,?) ON CONFLICT(endpoint) DO UPDATE SET data=excluded.data",
                 (data["endpoint"], json.dumps(data)),
             )
 
-    def delete_subscription(self, endpoint):
+    def delete_subscription(self, endpoint: str) -> None:
         with self.connection() as c:
             c.execute("DELETE FROM subscriptions WHERE endpoint=?", (endpoint,))
 
-    def seed_demo(self):
+    def seed_demo(self) -> None:
         if self.config("demo_seeded", False):
             return
-        plan = {
+        plan: dict[str, Any] = {
             "schema_version": 1,
             "id": "home",
             "name": "Domov",
@@ -397,7 +400,8 @@ class Database:
             "sensors": [],
         }
         with self.connection() as c:
-            for r in plan["rooms"]:
+            rooms: list[dict[str, Any]] = plan["rooms"]
+            for r in rooms:
                 c.execute("INSERT OR IGNORE INTO rooms VALUES(?,?,0)", (r["id"], r["name"]))
                 sid = "demo-" + r["id"]
                 c.execute(

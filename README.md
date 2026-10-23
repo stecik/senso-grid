@@ -160,13 +160,18 @@ Zachovej volumes app_data (SQLite + outbox) a influx_data (WAL/Parquet/catalog),
 
 ```sh
 uv run pytest
-uv run ruff check backend scripts
-uv run ruff format --check backend scripts
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check --error-on-warning
 cd frontend
 npm run lint
 npm run test -- --run
 npm run build
 ```
+
+Ruff kontroluje chybějící anotace parametrů i návratových hodnot v celém Python kódu včetně testů a diagnostických skriptů (`ANN`). Pravidlo `ANN401` není zapnuté: explicitní `Any` je povolené na dynamických JSON a externích rozhraních. Statický checker [ty](https://docs.astral.sh/ty/) kontroluje kompatibilitu typů v backendu, testech i skriptech; CI selže i při jeho varování. Verze nástrojů jsou uzamčené v `uv.lock`. TypeScript ve frontendu kontroluje stávající `vue-tsc` při sestavení.
+
+Testy mají explicitně dostupný kořen repozitáře i `backend`, takže `uv run pytest` i přímé spuštění `pytest` načítá pomocné moduly `scripts` stejně.
 
 Opt-in test skutečného InfluxDB: nastav SENSOGRID_TEST_INFLUX_URL a SENSOGRID_TEST_INFLUX_TOKEN; pytest vytvoří oddělenou databázi sensogrid_integration. Standardní unit testy síť ani skutečné senzory nepotřebují.
 

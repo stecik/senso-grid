@@ -4,9 +4,13 @@ import asyncio
 import ipaddress
 import json
 import socket
+from typing import Any
 from urllib.parse import urlsplit
 
 import requests
+
+from .config import Settings
+from .db import Database
 
 PUSH_HOSTS = {
     "fcm.googleapis.com",
@@ -48,11 +52,11 @@ def validate_endpoint(endpoint: str, resolve: bool = True) -> str:
 
 
 class NoRedirectSession(requests.Session):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.trust_env = False
 
-    def request(self, *args, **kwargs):
+    def request(self, *args: Any, **kwargs: Any) -> requests.Response:
         kwargs["allow_redirects"] = False
         response = super().request(*args, **kwargs)
         if response.is_redirect:
@@ -61,14 +65,14 @@ class NoRedirectSession(requests.Session):
 
 
 class PushService:
-    def __init__(self, settings, db):
+    def __init__(self, settings: Settings, db: Database) -> None:
         self.settings, self.db = settings, db
 
     @property
     def available(self) -> bool:
         return bool(self.settings.vapid_private_key and self.settings.vapid_public_key)
 
-    def send(self, subscription: dict, payload: dict) -> bool:
+    def send(self, subscription: dict[str, Any], payload: dict[str, Any]) -> bool:
         from pywebpush import WebPushException, webpush
 
         validate_endpoint(subscription["endpoint"])
@@ -94,7 +98,7 @@ class PushService:
         except (requests.RequestException, ValueError):
             return False
 
-    async def dispatch(self, payload: dict) -> dict[str, int]:
+    async def dispatch(self, payload: dict[str, Any]) -> dict[str, int]:
         if not self.available:
             return {"sent": 0, "failed": 0}
         sent = failed = 0

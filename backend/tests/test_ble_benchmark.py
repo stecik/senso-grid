@@ -3,6 +3,8 @@
 import argparse
 import asyncio
 import json
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -10,12 +12,12 @@ from scripts import ble_benchmark as benchmark
 from scripts.ble_benchmark import current_slot, summarize_profile
 
 
-def test_slot_skips_overdue_ticks_without_building_a_queue():
+def test_slot_skips_overdue_ticks_without_building_a_queue() -> None:
     assert current_slot(125.0, 100.0, 10.0, 0) == 2
     assert current_slot(105.0, 100.0, 10.0, 1) == 1
 
 
-def test_summary_distinguishes_retry_success_failed_and_unserved_slots():
+def test_summary_distinguishes_retry_success_failed_and_unserved_slots() -> None:
     sensors = [{"address": "AA", "name": "Desk"}]
     events = [
         {"kind": "attempt", "address": "AA", "attempt": 1, "status": "error", "read_seconds": 2},
@@ -48,7 +50,7 @@ def test_summary_distinguishes_retry_success_failed_and_unserved_slots():
     assert row["attempt_success_pct"] == 25
 
 
-def test_summary_does_not_report_success_when_no_reads_were_possible():
+def test_summary_does_not_report_success_when_no_reads_were_possible() -> None:
     row = summarize_profile([], [{"address": "AA", "name": "Desk"}], planned_slots=10)["sensors"][0]
     assert row["first_attempt_success_pct"] is None
     assert row["completed_cycle_success_pct"] is None
@@ -57,12 +59,14 @@ def test_summary_does_not_report_success_when_no_reads_were_possible():
 
 
 @pytest.mark.asyncio
-async def test_deadline_records_censored_sensor_even_while_waiting_for_radio(tmp_path, monkeypatch):
+async def test_deadline_records_censored_sensor_even_while_waiting_for_radio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Driver:
-        async def discover(self, **kwargs):
+        async def discover(self, **kwargs: Any) -> list[dict[str, Any]]:
             return []
 
-        async def read_current(self, *args, **kwargs):
+        async def read_current(self, *args: Any, **kwargs: Any) -> None:
             await asyncio.Event().wait()
 
     monkeypatch.setattr(benchmark, "LTDriver", Driver)
@@ -87,15 +91,17 @@ async def test_deadline_records_censored_sensor_even_while_waiting_for_radio(tmp
 
 
 @pytest.mark.asyncio
-async def test_transient_read_failure_is_counted_before_success_on_retry(tmp_path, monkeypatch):
+async def test_transient_read_failure_is_counted_before_success_on_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Driver:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = 0
 
-        async def discover(self, **kwargs):
+        async def discover(self, **kwargs: Any) -> list[dict[str, Any]]:
             return []
 
-        async def read_current(self, *args, **kwargs):
+        async def read_current(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("transient notification loss")
@@ -103,7 +109,7 @@ async def test_transient_read_failure_is_counted_before_success_on_retry(tmp_pat
 
     original_sleep = asyncio.sleep
 
-    async def sleep(delay):
+    async def sleep(delay: float) -> None:
         if delay == 1:
             return
         await original_sleep(delay)
@@ -123,7 +129,7 @@ async def test_transient_read_failure_is_counted_before_success_on_retry(tmp_pat
     assert row["errors"] == {"TimeoutError": 1}
 
 
-def test_started_slot_without_final_result_is_censored_not_never_started():
+def test_started_slot_without_final_result_is_censored_not_never_started() -> None:
     events = [
         {
             "kind": "attempt",
@@ -142,14 +148,16 @@ def test_started_slot_without_final_result_is_censored_not_never_started():
 
 
 @pytest.mark.asyncio
-async def test_profile_drains_slow_cancellation_before_closing_journal(tmp_path, monkeypatch):
+async def test_profile_drains_slow_cancellation_before_closing_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     original_sleep = asyncio.sleep
 
     class Driver:
-        def __init__(self):
+        def __init__(self) -> None:
             self.scans = 0
 
-        async def discover(self, **kwargs):
+        async def discover(self, **kwargs: Any) -> list[dict[str, Any]]:
             self.scans += 1
             if self.scans == 1:
                 return []
@@ -157,13 +165,14 @@ async def test_profile_drains_slow_cancellation_before_closing_journal(tmp_path,
                 await asyncio.Event().wait()
             finally:
                 await original_sleep(0.06)
+            return []
 
-        async def read_current(self, address, **kwargs):
+        async def read_current(self, address: str, **kwargs: Any) -> None:
             if address == "AA":
                 raise LookupError("device missing")
             await asyncio.Event().wait()
 
-    async def sleep(delay):
+    async def sleep(delay: float) -> None:
         if delay != 1:
             await original_sleep(delay)
 
@@ -186,7 +195,7 @@ async def test_profile_drains_slow_cancellation_before_closing_journal(tmp_path,
             t
             for t in asyncio.all_tasks()
             if t is not asyncio.current_task()
-            and "run_profile.<locals>.poll" in t.get_coro().__qualname__
+            and "run_profile.<locals>.poll" in getattr(t.get_coro(), "__qualname__", "")
         ]
         assert not pending, "A profile returned while its radio tasks were still cleaning up"
     finally:
@@ -194,14 +203,16 @@ async def test_profile_drains_slow_cancellation_before_closing_journal(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_child_cancellation_does_not_leave_another_sensor_running(tmp_path, monkeypatch):
+async def test_child_cancellation_does_not_leave_another_sensor_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     original_sleep = asyncio.sleep
 
     class Driver:
-        def __init__(self):
+        def __init__(self) -> None:
             self.scans = 0
 
-        async def discover(self, **kwargs):
+        async def discover(self, **kwargs: Any) -> list[dict[str, Any]]:
             self.scans += 1
             if self.scans == 1:
                 return []
@@ -209,14 +220,15 @@ async def test_child_cancellation_does_not_leave_another_sensor_running(tmp_path
                 await asyncio.Event().wait()
             finally:
                 await original_sleep(0.03)
+            return []
 
-        async def read_current(self, address, **kwargs):
+        async def read_current(self, address: str, **kwargs: Any) -> None:
             if address == "AA":
                 raise LookupError("device missing")
             await original_sleep(0.01)
             raise asyncio.CancelledError()
 
-    async def sleep(delay):
+    async def sleep(delay: float) -> None:
         if delay != 1:
             await original_sleep(delay)
 
@@ -241,7 +253,7 @@ async def test_child_cancellation_does_not_leave_another_sensor_running(tmp_path
             t
             for t in asyncio.all_tasks()
             if t is not asyncio.current_task()
-            and "run_profile.<locals>.poll" in t.get_coro().__qualname__
+            and "run_profile.<locals>.poll" in getattr(t.get_coro(), "__qualname__", "")
         ]
         assert not pending, "One sensor cancelled; another sensor kept using the radio"
     finally:

@@ -5,11 +5,11 @@ from sensogrid.ble.radio import BLERadio
 
 
 @pytest.mark.asyncio
-async def test_same_mac_never_connects_twice_at_once():
+async def test_same_mac_never_connects_twice_at_once() -> None:
     radio = BLERadio(10)
     entered = False
 
-    async def second():
+    async def second() -> None:
         nonlocal entered
         async with radio.read("aa-bb-cc-dd-ee-ff"):
             entered = True
@@ -23,17 +23,17 @@ async def test_same_mac_never_connects_twice_at_once():
 
 
 @pytest.mark.asyncio
-async def test_scan_waits_for_connections_and_blocks_new_connections():
+async def test_scan_waits_for_connections_and_blocks_new_connections() -> None:
     radio = BLERadio(2)
     scanning = asyncio.Event()
     finish = asyncio.Event()
 
-    async def scanner():
+    async def scanner() -> None:
         async with radio.scan():
             scanning.set()
             await finish.wait()
 
-    async def reader():
+    async def reader() -> None:
         async with radio.read("BB"):
             assert not scanning.is_set() or finish.is_set()
 
@@ -50,7 +50,7 @@ async def test_scan_waits_for_connections_and_blocks_new_connections():
 
 
 @pytest.mark.asyncio
-async def test_cancelling_waiting_scan_restores_all_connection_slots():
+async def test_cancelling_waiting_scan_restores_all_connection_slots() -> None:
     radio = BLERadio(2)
     async with radio.read("AA"):
         scan = asyncio.create_task(radio.scan().__aenter__())
@@ -58,7 +58,7 @@ async def test_cancelling_waiting_scan_restores_all_connection_slots():
         scan.cancel()
         await asyncio.gather(scan, return_exceptions=True)
 
-    async def both():
+    async def both() -> None:
         async with radio.read("AA"), radio.read("BB"):
             pass
 

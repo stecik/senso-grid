@@ -9,33 +9,77 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .ble.address import address_key, canonical_address
 from .ble.lt import LTDriver
 from .ble.radio import BLERadio
+from .config import Settings
 from .timeseries import InfluxStore, aggregate_points, bucket_start, utc
 
 logger = logging.getLogger(__name__)
 READ_ATTEMPTS = 5
 
 
+class RuntimeDatabase(Protocol):
+    """Configuration and sensor metadata required by collection."""
+
+    def config[T](self, key: str, default: T) -> T: ...
+
+    def set_config(self, key: str, value: Any) -> None: ...
+
+    def all_sensors(self) -> list[dict[str, Any]]: ...
+
+    def system_settings(self) -> dict[str, Any]: ...
+
+    def note_seen(self, sensor_id: str, iso_timestamp: str) -> None: ...
+
+
+class SensorDriver(Protocol):
+    """Collection operations supported by interchangeable sensor drivers."""
+
+    protocol: str
+
+    async def discover(self, timeout: float = 15) -> list[dict[str, Any]]: ...
+
+    async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]: ...
+
+
+class MeasurementStore(Protocol):
+    """Persistence operations used by the collector and history API."""
+
+    async def ensure_database(self) -> None: ...
+
+    async def write(self, sample: dict[str, Any]) -> None: ...
+
+    async def query(
+        self,
+        start: datetime,
+        end: datetime,
+        room_ids: list[str],
+        sensor_ids: list[str],
+        bucket: str,
+    ) -> list[dict[str, Any]]: ...
+
+    async def close(self) -> None: ...
+
+
 class Runtime:
-    def __init__(self, settings: Any, db: Any) -> None:
+    def __init__(self, settings: Settings, db: RuntimeDatabase) -> None:
         self.settings, self.db = settings, db
-        self.driver = LTDriver(settings.diagnostics)
-        self.store = InfluxStore(
+        self.driver: SensorDriver = LTDriver(settings.diagnostics)
+        self.store: MeasurementStore = InfluxStore(
             settings.influx_url, settings.influx_token, settings.influx_database
         )
-        self.state = {
+        self.state: dict[str, str | None] = {
             "collector": "starting",
             "storage": "demo" if settings.mode == "demo" else "starting",
             "last_error": None,
         }
-        self._latest: dict[str, dict] = db.config("latest_readings", {})
+        self._latest: dict[str, dict[str, Any]] = db.config("latest_readings", {})
         self.read_states: dict[str, str] = {}
         self.unavailable_sensors: set[str] = set(db.config("unavailable_sensors", []))
-        self._tasks: list[asyncio.Task] = []
+        self._tasks: list[asyncio.Task[None]] = []
         self._radio = BLERadio(settings.ble_concurrency)
         self._last_scan = 0.0
         self._last_poll: dict[str, float] = {}
@@ -60,7 +104,7 @@ class Runtime:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         await self.store.close()
 
-    def _sample_demo(self, sensor: dict, when: datetime) -> dict:
+    def _sample_demo(self, sensor: dict[str, Any], when: datetime) -> dict[str, Any]:
         phase = sum(map(ord, sensor["id"])) / 30
         hours = when.timestamp() / 3600
         temperature = round(
@@ -78,7 +122,7 @@ class Runtime:
             "source": "demo",
         }
 
-    def current(self) -> list[dict]:
+    def current(self) -> list[dict[str, Any]]:
         sensors = self.db.all_sensors()
         if self.settings.mode == "demo":
             now = datetime.now(UTC).replace(second=0, microsecond=0)
@@ -93,7 +137,7 @@ class Runtime:
             == enabled[key].get("address")
         ]
 
-    async def discover(self) -> list[dict]:
+    async def discover(self) -> list[dict[str, Any]]:
         if self.settings.mode == "demo":
             return [
                 {
@@ -110,7 +154,7 @@ class Runtime:
 
     async def _discover_devices(
         self, timeout: float = 15, newer_than: float | None = None
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         async with self._radio.scan():
             if newer_than is not None and self._last_scan > newer_than:
                 return []
@@ -118,7 +162,7 @@ class Runtime:
             self._last_scan = time.monotonic()
             return devices
 
-    async def preview_sensor(self, address: str) -> dict:
+    async def preview_sensor(self, address: str) -> dict[str, Any]:
         if self.settings.mode == "demo":
             return {
                 "temperature": 21.2,
@@ -142,7 +186,7 @@ class Runtime:
         self._publish_reading(address, row)
         return row
 
-    async def _read_with_retry(self, address: str, sensor_id: str | None = None) -> dict:
+    async def _read_with_retry(self, address: str, sensor_id: str | None = None) -> dict[str, Any]:
         address = canonical_address(address)
         started = time.monotonic()
         for attempt in range(READ_ATTEMPTS):
@@ -184,7 +228,7 @@ class Runtime:
                 await asyncio.sleep(delay)
         raise AssertionError("Retry loop exhausted")
 
-    def _publish_reading(self, address: str, row: dict, rssi: int | None = None) -> None:
+    def _publish_reading(self, address: str, row: dict[str, Any], rssi: int | None = None) -> None:
         sensors = self.db.all_sensors()
         sensor = next(
             (
@@ -230,7 +274,7 @@ class Runtime:
         room_ids: list[str],
         sensor_ids: list[str],
         bucket: str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         start, end = utc(start), utc(end)
         if start >= end or end - start > timedelta(days=366):
             raise ValueError("Choose a valid time range of at most 366 days")
@@ -251,7 +295,7 @@ class Runtime:
         if bucket == "raw" and ((end - start).total_seconds() / 900) * len(sensors) > 20000:
             raise ValueError("Too many points; choose a coarser aggregation")
         # Accumulate into calendar buckets without retaining a year of raw points.
-        groups: dict[tuple, dict] = {}
+        groups: dict[tuple[str, str, str | None], dict[str, Any]] = {}
         while cursor < end:
             for sensor in sensors:
                 sample = self._sample_demo(sensor, cursor)
@@ -287,7 +331,7 @@ class Runtime:
             rows.append(group)
         return aggregate_points(rows, "raw")
 
-    def _queue_sample(self, sample: dict) -> None:
+    def _queue_sample(self, sample: dict[str, Any]) -> None:
         if sum(1 for _ in self._outbox.glob("*.json")) >= 10000:
             raise RuntimeError("Measurement outbox full; restore InfluxDB connectivity")
         name = f"{int(utc(sample['timestamp']).timestamp() * 1000000):020d}-{uuid.uuid4().hex}"
@@ -364,7 +408,9 @@ class Runtime:
                 devices = await self._discover_devices()
                 rssi = {d["address"].upper(): d["rssi"] for d in devices}
 
-                async def poll(sensor, cycle_now, cycle_rssi):
+                async def poll(
+                    sensor: dict[str, Any], cycle_now: float, cycle_rssi: dict[str, int | None]
+                ) -> None:
                     # A preview may have acquired a fresh sample while discovery waited.
                     latest = self._latest.get(sensor["id"])
                     if (

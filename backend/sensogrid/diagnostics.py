@@ -10,25 +10,33 @@ import re
 import sys
 import time
 import zipfile
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlsplit, urlunsplit
+
+from .config import Settings
+from .db import Database
+
+if TYPE_CHECKING:
+    from .runtime import Runtime
 
 LOG_BYTES = 512 * 1024
 FILE_BYTES = 1024 * 1024
 SENSITIVE = re.compile(r"password|token|secret|authorization|cookie|private.key|session", re.I)
 
 
-def redact(value: str, secrets=()) -> str:
+def redact(value: str, secrets: Sequence[str] = ()) -> str:
     for secret in secrets:
         if isinstance(secret, str) and len(secret) >= 4:
             value = value.replace(secret, "[REDACTED]").replace(
                 quote(secret, safe=""), "[REDACTED]"
             )
 
-    def safe_url(match):
+    def safe_url(match: re.Match[str]) -> str:
         try:
             parsed = urlsplit(match[0])
             host = parsed.hostname or ""
@@ -52,7 +60,7 @@ def redact(value: str, secrets=()) -> str:
     )
 
 
-def secret_values(settings):
+def secret_values(settings: Settings) -> list[str]:
     return [
         value
         for key, value in vars(settings).items()
@@ -60,7 +68,7 @@ def secret_values(settings):
     ]
 
 
-def scrub(value, secrets):
+def scrub(value: Any, secrets: Sequence[str]) -> Any:
     if isinstance(value, str):
         return redact(value, secrets)
     if isinstance(value, dict):
@@ -74,11 +82,11 @@ def scrub(value, secrets):
 
 
 class DiagnosticFormatter(logging.Formatter):
-    def __init__(self, settings):
+    def __init__(self, settings: Settings) -> None:
         super().__init__()
         self.settings = settings
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         secrets = secret_values(self.settings)
         row = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
@@ -92,7 +100,7 @@ class DiagnosticFormatter(logging.Formatter):
 
 
 @contextmanager
-def capture_logs(settings):
+def capture_logs(settings: Settings) -> Generator[None]:
     directory = Path(settings.data_dir) / "diagnostics"
     directory.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(
@@ -122,12 +130,12 @@ def capture_logs(settings):
         handler.close()
 
 
-def build_bundle(settings, db, runtime) -> bytes:
+def build_bundle(settings: Settings, db: Database, runtime: "Runtime") -> bytes:
     from .runtime import READ_ATTEMPTS
 
     now = datetime.now(UTC)
     secrets = secret_values(settings)
-    manifest = {
+    manifest: dict[str, Any] = {
         "schema_version": 1,
         "created_utc": now.isoformat(),
         "files": {},
@@ -136,7 +144,7 @@ def build_bundle(settings, db, runtime) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
 
-        def add_json(name, value):
+        def add_json(name: str, value: Any) -> None:
             archive.writestr(name, json.dumps(scrub(value, secrets), ensure_ascii=False, indent=2))
 
         versions = {}
@@ -270,7 +278,7 @@ def build_bundle(settings, db, runtime) -> bytes:
                 ],
             }
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            manifest["host_logs"]["reason"] = type(exc).__name__
+            cast(dict[str, Any], manifest["host_logs"])["reason"] = type(exc).__name__
         archive.writestr(
             "README.txt",
             "SensoGrid diagnostic bundle. Times use UTC. Sensor names, addresses and recent readings are included. No account database, passwords, tokens, floorplan or full measurement history are exported. Host logs require the optional host collector; see manifest.json for coverage and snapshot age. Application logs are bounded and rotated. Core dump memory is never included.\n",

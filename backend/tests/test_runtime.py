@@ -1,28 +1,45 @@
 from datetime import UTC, datetime
-from types import SimpleNamespace
+from pathlib import Path
+from typing import Any, Literal
 
 import pytest
+from sensogrid.config import Settings
 from sensogrid.runtime import Runtime
 
 
+class _Driver:
+    protocol = "lt_thermometer"
+
+    async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
+        return []
+
+    async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
+        raise NotImplementedError
+
+
 class DB:
-    def config(self, key, default):
+    saved_config: dict[str, Any]
+
+    def note_seen(self, sensor_id: str, iso_timestamp: str) -> None:
+        pass
+
+    def config(self, key: str, default: Any) -> Any:
         return getattr(self, "saved_config", {}).get(key, default)
 
-    def set_config(self, key, value):
+    def set_config(self, key: str, value: Any) -> None:
         if not hasattr(self, "saved_config"):
             self.saved_config = {}
         self.saved_config[key] = value
 
-    def all_sensors(self):
+    def all_sensors(self) -> list[dict[str, Any]]:
         return [{"id": "s1", "name": "Bedroom", "room_id": "r1", "enabled": True}]
 
-    def system_settings(self):
+    def system_settings(self) -> dict[str, int]:
         return {"sample_interval_seconds": 900}
 
 
-def settings(tmp_path, mode="demo"):
-    return SimpleNamespace(
+def settings(tmp_path: Path, mode: Literal["demo", "ble", "off"] = "demo") -> Settings:
+    return Settings(
         mode=mode,
         data_dir=tmp_path,
         diagnostics=False,
@@ -34,7 +51,7 @@ def settings(tmp_path, mode="demo"):
 
 
 @pytest.mark.asyncio
-async def test_explicit_demo_and_filtered_history(tmp_path):
+async def test_explicit_demo_and_filtered_history(tmp_path: Path) -> None:
     runtime = Runtime(settings(tmp_path), DB())
     await runtime.start()
     assert runtime.current()[0]["source"] == "demo"
@@ -55,7 +72,7 @@ async def test_explicit_demo_and_filtered_history(tmp_path):
     await runtime.stop()
 
 
-def test_durable_outbox_and_no_fake_live_samples(tmp_path):
+def test_durable_outbox_and_no_fake_live_samples(tmp_path: Path) -> None:
     runtime = Runtime(settings(tmp_path, "ble"), DB())
     runtime._outbox.mkdir()
     assert runtime.current() == []
@@ -73,14 +90,16 @@ def test_durable_outbox_and_no_fake_live_samples(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_inflight_read_uses_current_room_and_ignores_disabled(tmp_path):
+async def test_inflight_read_uses_current_room_and_ignores_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import asyncio
 
     class MutableDB(DB):
         room = "old"
         enabled = True
 
-        def all_sensors(self):
+        def all_sensors(self) -> list[dict[str, Any]]:
             return [
                 {
                     "id": "s1",
@@ -92,7 +111,7 @@ async def test_inflight_read_uses_current_room_and_ignores_disabled(tmp_path):
                 }
             ]
 
-        def note_seen(self, *args):
+        def note_seen(self, sensor_id: str, iso_timestamp: str) -> None:
             pass
 
     db = MutableDB()
@@ -100,13 +119,13 @@ async def test_inflight_read_uses_current_room_and_ignores_disabled(tmp_path):
     captured = []
     done = asyncio.Event()
 
-    class Driver:
+    class Driver(_Driver):
         protocol = "lt_thermometer"
 
-        async def discover(self, **kwargs):
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
             return [{"address": "02:00:00:5E:00:03", "rssi": -50}]
 
-        async def read_current(self, address):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             db.room = "new"
             return {
                 "timestamp": "2026-01-01T00:00:00Z",
@@ -115,13 +134,14 @@ async def test_inflight_read_uses_current_room_and_ignores_disabled(tmp_path):
                 "battery_raw": 1,
             }
 
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
 
-    def capture(sample):
+    def capture(sample: dict[str, Any]) -> None:
         captured.append(sample)
         done.set()
 
-    runtime._queue_sample = capture
+    monkeypatch.setattr(runtime, "_queue_sample", capture)
     task = asyncio.create_task(runtime._collect_loop())
     await asyncio.wait_for(done.wait(), 1)
     task.cancel()
@@ -129,7 +149,7 @@ async def test_inflight_read_uses_current_room_and_ignores_disabled(tmp_path):
     assert captured[0]["room_id"] == "new"
 
 
-def test_reassignment_hides_old_live_reading(tmp_path):
+def test_reassignment_hides_old_live_reading(tmp_path: Path) -> None:
     runtime = Runtime(settings(tmp_path, "ble"), DB())
     runtime._latest["s1"] = {
         "sensor_id": "s1",
@@ -144,21 +164,23 @@ def test_reassignment_hides_old_live_reading(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_preview_retries_four_times_with_backoff_then_succeeds(tmp_path, monkeypatch):
+async def test_preview_retries_four_times_with_backoff_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     delays = []
 
-    async def pause(delay):
+    async def pause(delay: float) -> None:
         delays.append(delay)
 
     monkeypatch.setattr("sensogrid.runtime.asyncio.sleep", pause)
 
-    class Driver:
+    class Driver(_Driver):
         calls = 0
 
-        async def discover(self, **kwargs):
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
             return []
 
-        async def read_current(self, address):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             self.calls += 1
             if self.calls < 5:
                 raise TimeoutError("Temporary radio loss")
@@ -170,14 +192,15 @@ async def test_preview_retries_four_times_with_backoff_then_succeeds(tmp_path, m
             }
 
     runtime = Runtime(settings(tmp_path, "ble"), DB())
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
     result = await runtime.preview_sensor("AA:BB")
     assert result["temperature"] == 22.4
-    assert runtime.driver.calls == 5
+    assert driver.calls == 5
     assert delays == [1, 2, 4, 8]
 
 
-def test_last_known_battery_zero_survives_a_later_optional_read_failure(tmp_path):
+def test_last_known_battery_zero_survives_a_later_optional_read_failure(tmp_path: Path) -> None:
     from sensogrid.db import Database
 
     db = Database(tmp_path / "metadata.sqlite3")
@@ -196,7 +219,9 @@ def test_last_known_battery_zero_survives_a_later_optional_read_failure(tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("address", ["AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff"])
-async def test_registered_preview_survives_restart_without_new_radio_read(tmp_path, address):
+async def test_registered_preview_survives_restart_without_new_radio_read(
+    tmp_path: Path, address: str
+) -> None:
     from sensogrid.db import Database
 
     db = Database(tmp_path / "metadata.sqlite3")
@@ -215,13 +240,14 @@ async def test_registered_preview_survives_restart_without_new_radio_read(tmp_pa
         "battery_raw": 1,
     }
 
-    class Driver:
-        async def read_current(self, address):
+    class Driver(_Driver):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             return sample
 
     runtime = Runtime(settings(tmp_path, "ble"), db)
     runtime._outbox.mkdir()
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
     await runtime.preview_sensor(address)
     restarted = Runtime(settings(tmp_path, "ble"), db)
     assert len(restarted.current()) == 1
@@ -232,13 +258,13 @@ async def test_registered_preview_survives_restart_without_new_radio_read(tmp_pa
 @pytest.mark.asyncio
 @pytest.mark.parametrize("room_changed,failed", [(True, False), (False, True)])
 async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
-    tmp_path, room_changed, failed
-):
+    tmp_path: Path, room_changed: bool, failed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import asyncio
     import time
 
     class ChangedDB(DB):
-        def all_sensors(self):
+        def all_sensors(self) -> list[dict[str, Any]]:
             return [
                 {
                     "id": "s1",
@@ -250,16 +276,16 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
                 }
             ]
 
-        def note_seen(self, *args):
+        def note_seen(self, sensor_id: str, iso_timestamp: str) -> None:
             pass
 
-    class Driver:
+    class Driver(_Driver):
         protocol = "lt_thermometer"
 
-        async def discover(self, **kwargs):
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
             return [{"address": "AA:BB", "rssi": -60}]
 
-        async def read_current(self, address):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             return {
                 "temperature": 22.4,
                 "humidity": 47,
@@ -268,7 +294,8 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
             }
 
     runtime = Runtime(settings(tmp_path, "ble"), ChangedDB())
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
     runtime._last_poll["s1"] = time.monotonic()
     runtime._latest["s1"] = {
         "sensor_id": "s1",
@@ -280,7 +307,7 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
         runtime.unavailable_sensors.add("s1")
         runtime._retry_after["s1"] = time.monotonic() - 1
     captured = []
-    runtime._queue_sample = captured.append
+    monkeypatch.setattr(runtime, "_queue_sample", captured.append)
     task = asyncio.create_task(runtime._collect_loop())
     await asyncio.sleep(0.05)
     task.cancel()
@@ -289,7 +316,9 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
 
 
 @pytest.mark.asyncio
-async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(tmp_path, monkeypatch):
+async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from sensogrid.db import Database
 
     db = Database(tmp_path / "metadata.sqlite3")
@@ -307,25 +336,26 @@ async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(tmp_path
     runtime._latest[sensor_id] = sample
     delays = []
 
-    async def pause(delay):
+    async def pause(delay: float) -> None:
         delays.append(delay)
 
     monkeypatch.setattr("sensogrid.runtime.asyncio.sleep", pause)
 
-    class Driver:
+    class Driver(_Driver):
         calls = 0
 
-        async def discover(self, **kwargs):
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
             return []
 
-        async def read_current(self, address):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             self.calls += 1
             raise TimeoutError("Radio unavailable")
 
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
     with pytest.raises(TimeoutError):
         await runtime.preview_sensor("AA:BB")
-    assert runtime.driver.calls == 5
+    assert driver.calls == 5
     assert delays == [1, 2, 4, 8]
     assert runtime._latest[sensor_id] == sample
     assert runtime.read_states[sensor_id] == "unavailable"
@@ -333,7 +363,7 @@ async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_preview_reads_distinct_devices_concurrently_with_limit_ten(tmp_path):
+async def test_preview_reads_distinct_devices_concurrently_with_limit_ten(tmp_path: Path) -> None:
     import asyncio
 
     active = 0
@@ -341,8 +371,8 @@ async def test_preview_reads_distinct_devices_concurrently_with_limit_ten(tmp_pa
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    class Driver:
-        async def read_current(self, address):
+    class Driver(_Driver):
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             nonlocal active, peak
             active += 1
             peak = max(peak, active)
@@ -360,7 +390,8 @@ async def test_preview_reads_distinct_devices_concurrently_with_limit_ten(tmp_pa
                 active -= 1
 
     runtime = Runtime(settings(tmp_path, "ble"), DB())
-    runtime.driver = Driver()
+    driver = Driver()
+    runtime.driver = driver
     tasks = [asyncio.create_task(runtime.preview_sensor(f"AA:{index:02X}")) for index in range(12)]
     try:
         try:

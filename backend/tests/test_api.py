@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
 import sqlite3
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, Never
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,23 +16,23 @@ from sensogrid.push import PushService, validate_endpoint
 
 
 class FakeRuntime:
-    def __init__(self, settings, db):
+    def __init__(self, settings: Settings, db: Database) -> None:
         self.settings, self.db = settings, db
         self.readings = []
         self.read_states = {}
         self.unavailable_sensors = set()
         self.state = {"collector": "idle", "storage": "ready", "last_error": None}
 
-    async def start(self):
+    async def start(self) -> None:
         pass
 
-    async def stop(self):
+    async def stop(self) -> None:
         pass
 
-    def current(self):
+    def current(self) -> list[dict[str, Any]]:
         return self.readings
 
-    async def discover(self):
+    async def discover(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": "LT_test",
@@ -42,12 +45,12 @@ class FakeRuntime:
             }
         ]
 
-    async def history(self, *args):
+    async def history(self, *args: Any) -> list[dict[str, Any]]:
         return []
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path: Path) -> Iterator[TestClient]:
     app = create_app(
         Settings(mode="off", data_dir=tmp_path, static_dir=tmp_path / "static"),
         runtime_factory=FakeRuntime,
@@ -57,7 +60,7 @@ def client(tmp_path):
 
 
 @pytest.fixture
-def logged(client):
+def logged(client: TestClient) -> TestClient:
     assert (
         client.post(
             "/api/auth/setup", json={"username": "admin", "password": "Safe-password-123"}
@@ -67,7 +70,7 @@ def logged(client):
     return client
 
 
-def test_setup_session_csrf_logout(logged):
+def test_setup_session_csrf_logout(logged: TestClient) -> None:
     assert logged.get("/api/auth/status").json()["authenticated"]
     assert logged.get("/api/auth/me").json() == {"id": 1, "username": "admin"}
     assert (
@@ -104,7 +107,7 @@ def test_setup_session_csrf_logout(logged):
     assert logged.get("/api/dashboard").status_code == 401
 
 
-def test_unauthenticated_and_expired_session(client):
+def test_unauthenticated_and_expired_session(client: TestClient) -> None:
     assert client.get("/api/settings").status_code == 401
     assert client.get("/api/auth/status").json()["setup_required"]
     response = client.post(
@@ -125,7 +128,7 @@ def test_unauthenticated_and_expired_session(client):
     )
 
 
-def test_auth_rate_limit_and_error_no_password(client):
+def test_auth_rate_limit_and_error_no_password(client: TestClient) -> None:
     for _ in range(10):
         assert (
             client.post(
@@ -143,10 +146,10 @@ def test_auth_rate_limit_and_error_no_password(client):
     assert "short" not in response.text
 
 
-def test_setup_database_race(tmp_path):
+def test_setup_database_race(tmp_path: Path) -> None:
     db = Database(tmp_path / "config.sqlite3")
 
-    def insert(name):
+    def insert(name: str) -> bool:
         try:
             db.create_user(name, "hash")
             return True
@@ -157,7 +160,7 @@ def test_setup_database_race(tmp_path):
         assert sum(executor.map(insert, ["one", "two"])) == 1
 
 
-def test_preferences_and_system_validation(logged):
+def test_preferences_and_system_validation(logged: TestClient) -> None:
     response = logged.patch("/api/settings", json={"heatmap": {"temperature": [10, 30]}})
     assert response.json()["heatmap"] == {"temperature": [10, 30], "humidity": [30, 70]}
     assert (
@@ -176,7 +179,7 @@ def test_preferences_and_system_validation(logged):
     )
 
 
-def test_current_stale_disabled_and_history(logged):
+def test_current_stale_disabled_and_history(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     now = datetime.now(UTC)
     logged.app.state.runtime.readings = [
@@ -206,7 +209,7 @@ def test_current_stale_disabled_and_history(logged):
     assert logged.post("/api/sensors/discover").json()["devices"][0]["name"] == "LT_test"
 
 
-def test_rules_and_unconfigured_push(logged):
+def test_rules_and_unconfigured_push(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     rule = {
         "name": "Warm",
@@ -228,7 +231,7 @@ def test_rules_and_unconfigured_push(logged):
     assert logged.delete("/api/alerts/rules/" + rid).status_code == 404
 
 
-def test_push_endpoint_ssrf_and_cleanup(tmp_path, monkeypatch):
+def test_push_endpoint_ssrf_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for url in [
         "http://fcm.googleapis.com/x",
         "https://127.0.0.1/x",
@@ -254,7 +257,7 @@ def test_push_endpoint_ssrf_and_cleanup(tmp_path, monkeypatch):
         status_code = 410
         text = "expired"
 
-    def expired(**kwargs):
+    def expired(**kwargs: Any) -> Never:
         raise pywebpush.WebPushException("gone", response=Gone())
 
     monkeypatch.setattr(pywebpush, "webpush", expired)
@@ -263,7 +266,7 @@ def test_push_endpoint_ssrf_and_cleanup(tmp_path, monkeypatch):
     assert db.subscriptions() == []
 
 
-def test_spa_does_not_capture_api_or_traversal(tmp_path):
+def test_spa_does_not_capture_api_or_traversal(tmp_path: Path) -> None:
     static = tmp_path / "static"
     static.mkdir()
     (static / "index.html").write_text("<html>SensoGrid</html>")
@@ -280,7 +283,7 @@ def test_spa_does_not_capture_api_or_traversal(tmp_path):
         assert client.get("/health").headers["cache-control"] == "no-store"
 
 
-def test_global_interval_inheritance_and_overrides(logged):
+def test_global_interval_inheritance_and_overrides(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     sensor_id = sensor["id"]
     assert sensor["sample_interval_seconds"] == 900 and sensor["interval_override_seconds"] is None
@@ -306,7 +309,7 @@ def test_global_interval_inheritance_and_overrides(logged):
     assert response.json()["sample_interval_seconds"] == 120
 
 
-def test_schema_v1_migration_preserves_metadata_and_custom_intervals(tmp_path):
+def test_schema_v1_migration_preserves_metadata_and_custom_intervals(tmp_path: Path) -> None:
     db = Database(tmp_path / "old.sqlite3")
     with db.connection() as c:
         c.execute("DROP TABLE sensors")
@@ -327,7 +330,7 @@ def test_schema_v1_migration_preserves_metadata_and_custom_intervals(tmp_path):
         assert c.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
-def test_reassignment_waits_for_sample_from_new_room(logged):
+def test_reassignment_waits_for_sample_from_new_room(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     now = datetime.now(UTC).isoformat()
     sample = {
@@ -357,8 +360,8 @@ def test_reassignment_waits_for_sample_from_new_room(logged):
     assert logged.get("/api/dashboard").json()["rooms"][0]["temperature"] == 28
 
 
-def test_history_point_limit_is_actionable_client_error(logged):
-    async def limit(*args):
+def test_history_point_limit_is_actionable_client_error(logged: TestClient) -> None:
+    async def limit(*args: Any) -> Never:
         raise ValueError("Too many points; choose a coarser aggregation")
 
     logged.app.state.runtime.history = limit
@@ -371,7 +374,7 @@ def test_history_point_limit_is_actionable_client_error(logged):
     response = logged.get("/api/history", params=params)
     assert response.status_code == 422 and "coarser aggregation" in response.json()["detail"]
 
-    async def failure(*args):
+    async def failure(*args: Any) -> Never:
         raise ValueError("Unexpected InfluxDB query response")
 
     logged.app.state.runtime.history = failure
@@ -379,7 +382,7 @@ def test_history_point_limit_is_actionable_client_error(logged):
 
 
 @pytest.mark.parametrize("password", ["Abcdefg!", "Červená!"])
-def test_setup_accepts_eight_characters_without_digits(client, password):
+def test_setup_accepts_eight_characters_without_digits(client: TestClient, password: str) -> None:
     assert (
         client.post("/api/auth/setup", json={"username": "admin", "password": password}).status_code
         == 200
@@ -395,14 +398,14 @@ def test_setup_accepts_eight_characters_without_digits(client, password):
     "password",
     ["Abcdef!", "abcdefghijk!", "ABCDEFGHIJK!", "Abcdefghijkl", "Abcdefghijk1", "Abcdefghijk "],
 )
-def test_setup_rejects_missing_password_requirements(client, password):
+def test_setup_rejects_missing_password_requirements(client: TestClient, password: str) -> None:
     response = client.post("/api/auth/setup", json={"username": "admin", "password": password})
     assert response.status_code == 422
     assert password not in response.text
     assert client.get("/api/auth/status").json()["setup_required"]
 
 
-def test_login_preserves_existing_password_without_new_complexity(client):
+def test_login_preserves_existing_password_without_new_complexity(client: TestClient) -> None:
     from sensogrid.api import hash_password
 
     password = "previous-password"
@@ -413,11 +416,16 @@ def test_login_preserves_existing_password_without_new_complexity(client):
     )
 
 
-def test_discovered_sensor_preview_does_not_register_sensor(logged):
+def test_discovered_sensor_preview_does_not_register_sensor(logged: TestClient) -> None:
     from sensogrid.runtime import Runtime
 
     class Driver:
-        async def read_current(self, address):
+        protocol = "lt_thermometer"
+
+        async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
+            return []
+
+        async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
             if address != "AA:BB":
                 raise LookupError("Not discovered")
             return {"temperature": 22.8, "humidity": 51.0, "timestamp": "2026-10-22T18:19:00Z"}
@@ -438,7 +446,7 @@ def test_discovered_sensor_preview_does_not_register_sensor(logged):
     assert not list(runtime._outbox.glob("*.json"))
 
 
-def test_fresh_measurement_stays_available_until_retries_exhausted(logged):
+def test_fresh_measurement_stays_available_until_retries_exhausted(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     runtime = logged.app.state.runtime
     runtime.readings = [
@@ -462,7 +470,9 @@ def test_fresh_measurement_stays_available_until_retries_exhausted(logged):
     assert logged.get("/api/dashboard").json()["sensors"][0]["available"]
 
 
-def test_offline_sensor_retains_server_sample_without_entering_live_averages(logged):
+def test_offline_sensor_retains_server_sample_without_entering_live_averages(
+    logged: TestClient,
+) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     runtime = logged.app.state.runtime
     timestamp = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
@@ -491,11 +501,13 @@ def test_offline_sensor_retains_server_sample_without_entering_live_averages(log
     assert dashboard["average_humidity"] is None
 
 
-def test_diagnostics_download_requires_login(client):
+def test_diagnostics_download_requires_login(client: TestClient) -> None:
     assert client.get("/api/diagnostics").status_code == 401
 
 
-def test_diagnostics_download_is_redacted_zip_and_reports_missing_host_logs(logged):
+def test_diagnostics_download_is_redacted_zip_and_reports_missing_host_logs(
+    logged: TestClient,
+) -> None:
     import io
     import json
     import zipfile
@@ -516,7 +528,9 @@ def test_diagnostics_download_is_redacted_zip_and_reports_missing_host_logs(logg
         assert b"sensogrid_session" not in contents
 
 
-def test_diagnostics_includes_host_snapshot_and_redacts_settings_secrets(logged, tmp_path):
+def test_diagnostics_includes_host_snapshot_and_redacts_settings_secrets(
+    logged: TestClient, tmp_path: Path
+) -> None:
     import io
     import json
     import zipfile
@@ -539,11 +553,13 @@ def test_diagnostics_includes_host_snapshot_and_redacts_settings_secrets(logged,
                     assert isinstance(json.loads(line), dict)
 
 
-def test_diagnostics_limits_repeated_downloads(logged):
+def test_diagnostics_limits_repeated_downloads(logged: TestClient) -> None:
     assert [logged.get("/api/diagnostics").status_code for _ in range(4)] == [200, 200, 200, 429]
 
 
-def test_invalid_host_snapshot_does_not_break_application_download(logged, tmp_path):
+def test_invalid_host_snapshot_does_not_break_application_download(
+    logged: TestClient, tmp_path: Path
+) -> None:
     import io
     import json
     import zipfile
@@ -558,7 +574,7 @@ def test_invalid_host_snapshot_does_not_break_application_download(logged, tmp_p
         assert not json.loads(archive.read("manifest.json"))["host_logs"]["available"]
 
 
-def test_same_mac_with_different_format_does_not_create_another_sensor(logged):
+def test_same_mac_with_different_format_does_not_create_another_sensor(logged: TestClient) -> None:
     first = logged.post(
         "/api/sensors", json={"name": "Ložnice", "address": "AA:BB:CC:DD:EE:FF"}
     ).json()
@@ -574,7 +590,7 @@ def test_same_mac_with_different_format_does_not_create_another_sensor(logged):
     assert sensors[0]["name"] == "Ložnice"
 
 
-def test_legacy_heatmap_settings_keep_outer_limits_and_preferences(logged):
+def test_legacy_heatmap_settings_keep_outer_limits_and_preferences(logged: TestClient) -> None:
     stored = {
         "language": "en",
         "theme": "dark",
@@ -592,7 +608,7 @@ def test_legacy_heatmap_settings_keep_outer_limits_and_preferences(logged):
 
 
 @pytest.mark.parametrize("limits", [[25, 18], [22, 22], [18], [18, 20, 22, 25]])
-def test_reject_invalid_temperature_heatmap_limits(logged, limits):
+def test_reject_invalid_temperature_heatmap_limits(logged: TestClient, limits: list[int]) -> None:
     original = logged.get("/api/settings").json()
     assert (
         logged.patch("/api/settings", json={"heatmap": {"temperature": limits}}).status_code == 422

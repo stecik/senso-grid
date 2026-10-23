@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 
 import pytest
 from sensogrid.alerts import AlertEngine
@@ -7,7 +9,7 @@ from sensogrid.db import Database
 
 
 @pytest.fixture
-def setup(tmp_path):
+def setup(tmp_path: Path) -> tuple[Settings, Database, str, dict[str, Any]]:
     settings = Settings(mode="off", data_dir=tmp_path)
     db = Database(tmp_path / "config.sqlite3", settings)
     sensor = db.add_sensor(
@@ -29,7 +31,7 @@ def setup(tmp_path):
     return settings, db, sensor, rule
 
 
-def reading(sensor, now, temp=26):
+def reading(sensor: str, now: datetime, temp: float = 26) -> list[dict[str, Any]]:
     return [
         {
             "sensor_id": sensor,
@@ -42,7 +44,9 @@ def reading(sensor, now, temp=26):
 
 
 @pytest.mark.asyncio
-async def test_duration_restart_hysteresis_single_event(setup):
+async def test_duration_restart_hysteresis_single_event(
+    setup: tuple[Settings, Database, str, dict[str, Any]],
+) -> None:
     settings, db, sensor, rule = setup
     engine = AlertEngine(db, settings)
     now = datetime.now(UTC)
@@ -75,7 +79,9 @@ async def test_duration_restart_hysteresis_single_event(setup):
 
 
 @pytest.mark.asyncio
-async def test_stale_readings_cannot_trigger_or_resolve(setup):
+async def test_stale_readings_cannot_trigger_or_resolve(
+    setup: tuple[Settings, Database, str, dict[str, Any]],
+) -> None:
     settings, db, sensor, rule = setup
     engine = AlertEngine(db, settings)
     now = datetime.now(UTC)
@@ -97,7 +103,9 @@ async def test_stale_readings_cannot_trigger_or_resolve(setup):
 
 
 @pytest.mark.asyncio
-async def test_offline_and_disabled_rules(setup):
+async def test_offline_and_disabled_rules(
+    setup: tuple[Settings, Database, str, dict[str, Any]],
+) -> None:
     settings, db, sensor, rule = setup
     db.delete_rule(rule["id"])
     db.save_rule(
@@ -125,7 +133,9 @@ async def test_offline_and_disabled_rules(setup):
 
 
 @pytest.mark.asyncio
-async def test_room_aggregation_waits_for_matching_sample_assignment(setup):
+async def test_room_aggregation_waits_for_matching_sample_assignment(
+    setup: tuple[Settings, Database, str, dict[str, Any]],
+) -> None:
     settings, db, sensor, rule = setup
     db.delete_rule(rule["id"])
     db.save_floorplan(

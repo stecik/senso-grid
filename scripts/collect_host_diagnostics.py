@@ -2,8 +2,10 @@
 
 import json
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Protocol
 
 OUTPUT = Path("/var/lib/sensogrid-diagnostics/host.json")
 MAX_OUTPUT = 48000
@@ -88,21 +90,27 @@ COMMANDS = {
 }
 
 
-def collect(run=subprocess.run):
-    commands = {}
+class CommandResult(Protocol):
+    stdout: str
+    stderr: str
+    returncode: int
+
+
+def collect(run: Callable[..., CommandResult] = subprocess.run) -> dict[str, Any]:
+    commands: dict[str, Any] = {}
     for name, args in COMMANDS.items():
         try:
-            result = run(args, capture_output=True, text=True, timeout=8, check=False)
-            text = result.stdout + result.stderr
+            command_result = run(args, capture_output=True, text=True, timeout=8, check=False)
+            text = command_result.stdout + command_result.stderr
             encoded = text.encode("utf-8", errors="replace")
             commands[name] = {
-                "exit_code": result.returncode,
+                "exit_code": command_result.returncode,
                 "truncated": len(encoded) > MAX_OUTPUT,
                 "output": encoded[-MAX_OUTPUT:].decode("utf-8", errors="replace"),
             }
         except (OSError, subprocess.TimeoutExpired) as exc:
             commands[name] = {"error": type(exc).__name__}
-    result = {
+    result: dict[str, Any] = {
         "schema_version": 1,
         "created_utc": datetime.now(UTC).isoformat(),
         "commands": commands,
@@ -115,7 +123,7 @@ def collect(run=subprocess.run):
     return result
 
 
-def main():
+def main() -> None:
     payload = json.dumps(collect(), ensure_ascii=False, indent=2)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     temporary = OUTPUT.with_suffix(".tmp")

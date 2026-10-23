@@ -3,27 +3,41 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from typing import Any, TypedDict
+
+from .config import Settings
+from .db import Database
+from .push import PushService
+
+
+class AlertState(TypedDict):
+    pending_since: float | None
+    event_id: str | None
 
 
 def parse_time(value: str | None) -> datetime | None:
+    if value is None:
+        return None
     try:
-        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
     except (ValueError, TypeError, AttributeError):
         return None
 
 
 class AlertEngine:
-    def __init__(self, db, settings, push=None):
+    def __init__(self, db: Database, settings: Settings, push: PushService | None = None) -> None:
         self.db, self.settings, self.push = db, settings, push
 
-    async def evaluate(self, measurements: list[dict], now: datetime | None = None) -> list[dict]:
+    async def evaluate(
+        self, measurements: list[dict[str, Any]], now: datetime | None = None
+    ) -> list[dict[str, Any]]:
         now = now or datetime.now(UTC)
         stamp = now.timestamp()
         sensors = self.db.all_sensors()
         live = {m["sensor_id"]: m for m in measurements}
         stale = self.db.system_settings()["stale_after_seconds"]
-        notifications = []
+        notifications: list[dict[str, Any]] = []
         for rule in self.db.rules():
             targets = [
                 s
@@ -66,7 +80,9 @@ class AlertEngine:
                 row = c.execute(
                     "SELECT data FROM alert_state WHERE rule_id=?", (rule["id"],)
                 ).fetchone()
-                state = json.loads(row[0]) if row else {"pending_since": None, "event_id": None}
+                state: AlertState = (
+                    json.loads(row[0]) if row else {"pending_since": None, "event_id": None}
+                )
                 if not rule["enabled"]:
                     reset = True
                     trigger = False
@@ -84,9 +100,11 @@ class AlertEngine:
                         )
                         state = {"pending_since": None, "event_id": None}
                 elif trigger:
-                    if state["pending_since"] is None:
-                        state["pending_since"] = stamp
-                    if stamp - state["pending_since"] >= rule["duration_seconds"]:
+                    pending_since = state["pending_since"]
+                    if pending_since is None:
+                        pending_since = stamp
+                        state["pending_since"] = pending_since
+                    if stamp - pending_since >= rule["duration_seconds"]:
                         event_id = str(uuid.uuid4())
                         message = rule["name"] + ": " + rule["metric"] + " " + format(value, ".1f")
                         event = {

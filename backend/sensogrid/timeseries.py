@@ -3,8 +3,12 @@
 import asyncio
 import logging
 import math
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from influxdb_client_3 import InfluxDBClient3
 
 import httpx
 
@@ -17,7 +21,7 @@ def utc(value: datetime | str) -> datetime:
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
-def query_windows(start: datetime, end: datetime):
+def query_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
     start, end = utc(start), utc(end)
     if start >= end or end - start > timedelta(days=366):
         raise ValueError("Choose a time range between zero and 366 days")
@@ -43,8 +47,8 @@ def bucket_start(timestamp: datetime | str, bucket: str) -> datetime:
     return dt
 
 
-def aggregate_points(rows: list[dict], bucket: str) -> list[dict]:
-    groups: dict[tuple, dict[str, Any]] = {}
+def aggregate_points(rows: list[dict[str, Any]], bucket: str) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str | None], dict[str, Any]] = {}
     for row in rows:
         timestamp = bucket_start(row["timestamp"], bucket).isoformat()
         key = (timestamp, row["sensor_id"], row.get("room_id"))
@@ -95,11 +99,11 @@ class InfluxStore:
         self.url = url.rstrip("/")
         self.token = token
         self.database = database
-        self._writer = None
-        self._inflight: set[asyncio.Task] = set()
+        self._writer: InfluxDBClient3 | None = None
+        self._inflight: set[asyncio.Task[None]] = set()
 
     @property
-    def headers(self) -> dict:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     async def ensure_database(self) -> None:
@@ -115,7 +119,7 @@ class InfluxStore:
                     return
                 response.raise_for_status()
 
-    async def write(self, sample: dict) -> None:
+    async def write(self, sample: dict[str, Any]) -> None:
         operation = asyncio.create_task(asyncio.to_thread(self._write_sync, sample))
         self._inflight.add(operation)
         try:
@@ -126,7 +130,7 @@ class InfluxStore:
         finally:
             self._inflight.discard(operation)
 
-    def _write_sync(self, sample: dict) -> None:
+    def _write_sync(self, sample: dict[str, Any]) -> None:
         from influxdb_client_3 import InfluxDBClient3, Point
 
         if self._writer is None:
@@ -147,7 +151,7 @@ class InfluxStore:
             point.field("rssi", int(sample["rssi"]))
         self._writer.write(record=point)
 
-    async def _query_sql(self, sql: str) -> list[dict]:
+    async def _query_sql(self, sql: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
                 self.url + "/api/v3/query_sql",
@@ -178,7 +182,7 @@ class InfluxStore:
         room_ids: list[str],
         sensor_ids: list[str],
         bucket: str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         if bucket not in ("raw", "hour", "day", "week", "month"):
             raise ValueError("Unknown aggregation bucket")
         result = []

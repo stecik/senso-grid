@@ -1,40 +1,59 @@
 import asyncio
 import struct
-from types import SimpleNamespace
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Self
 
 import pytest
+from bleak.backends.device import BLEDevice
 from sensogrid.ble import lt
 from sensogrid.ble.protocol import encode_frame
 
 
+@dataclass
+class Characteristic:
+    uuid: str
+    properties: list[str]
+
+
+class Services:
+    def __init__(self, lookup: Callable[[str], Characteristic | None]) -> None:
+        self._lookup = lookup
+
+    def get_characteristic(self, uuid: str) -> Characteristic | None:
+        return self._lookup(uuid)
+
+
 class Client:
-    def __init__(self, value=b"\x49", error=False, missing=False):
+    def __init__(self, value: bytes = b"\x49", error: bool = False, missing: bool = False) -> None:
         self.value, self.error, self.missing = value, error, missing
         self.reads = 0
         self.is_connected = True
-        self.services = SimpleNamespace(get_characteristic=self.characteristic)
+        self.services = Services(self.characteristic)
 
-    def characteristic(self, uuid):
+    def characteristic(self, uuid: str) -> Characteristic | None:
         if uuid == lt.BATTERY_UUID and self.missing:
             return None
-        return SimpleNamespace(uuid=uuid, properties=["read", "write"])
+        return Characteristic(uuid=uuid, properties=["read", "write"])
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any) -> None:
         pass
 
-    async def start_notify(self, char, callback):
+    async def start_notify(
+        self, char: Characteristic, callback: Callable[[None, bytearray], None]
+    ) -> None:
         self.receive = callback
 
-    async def stop_notify(self, char):
+    async def stop_notify(self, char: Characteristic) -> None:
         pass
 
-    async def write_gatt_char(self, *args, **kwargs):
+    async def write_gatt_char(self, *args: Any, **kwargs: Any) -> None:
         self.receive(None, bytearray(encode_frame(0xA2, struct.pack(">hHBB", 224, 470, 1, 0))))
 
-    async def read_gatt_char(self, char):
+    async def read_gatt_char(self, char: Characteristic) -> bytes:
         self.reads += 1
         if self.error:
             raise TimeoutError("battery read failed")
@@ -46,7 +65,9 @@ class Client:
     "value,expected",
     [(b"\x00", 0), (b"\x64", 100), (b"\xff", None), (b"", None), (b"\x01\x02", None)],
 )
-async def test_standard_battery_percentage_is_not_the_raw_lt_status(value, expected):
+async def test_standard_battery_percentage_is_not_the_raw_lt_status(
+    value: bytes, expected: int | None
+) -> None:
     result = await lt.LTDriver()._read_battery(Client(value), "AA:BB")
     assert result.get("battery_percent") == expected
     if expected is not None:
@@ -55,11 +76,13 @@ async def test_standard_battery_percentage_is_not_the_raw_lt_status(value, expec
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs", [{"error": True}, {"missing": True}, {}])
-async def test_optional_battery_failure_never_discards_climate_sample(monkeypatch, kwargs):
+async def test_optional_battery_failure_never_discards_climate_sample(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict[str, Any]
+) -> None:
     client = Client(**kwargs)
     monkeypatch.setattr(lt, "BleakClient", lambda *a, **k: client)
     driver = lt.LTDriver()
-    driver.devices["AA:BB"] = object()
+    driver.devices["AA:BB"] = BLEDevice("AA:BB", "Test", None)
     result = await driver.read_current("AA:BB")
     assert result["temperature"] == 22.4
     assert result["humidity"] == 47
@@ -68,7 +91,9 @@ async def test_optional_battery_failure_never_discards_climate_sample(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_battery_is_cached_and_rechecked_after_one_hour(monkeypatch):
+async def test_battery_is_cached_and_rechecked_after_one_hour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     now = [100.0]
     monkeypatch.setattr(lt.time, "monotonic", lambda: now[0])
     driver, client = lt.LTDriver(), Client()
@@ -82,15 +107,17 @@ async def test_battery_is_cached_and_rechecked_after_one_hour(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stalled_battery_read_does_not_block_or_discard_climate(monkeypatch):
+async def test_stalled_battery_read_does_not_block_or_discard_climate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Stalled(Client):
-        async def read_gatt_char(self, char):
-            await asyncio.Event().wait()
+        async def read_gatt_char(self, char: Characteristic) -> bytes:
+            return await asyncio.Future[bytes]()
 
     client = Stalled()
     monkeypatch.setattr(lt, "BleakClient", lambda *a, **k: client)
     driver = lt.LTDriver()
-    driver.devices["AA:BB"] = object()
+    driver.devices["AA:BB"] = BLEDevice("AA:BB", "Test", None)
     result = await asyncio.wait_for(driver.read_current("AA:BB"), timeout=4)
     assert result["temperature"] == 22.4
     assert result.get("battery_percent") is None

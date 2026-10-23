@@ -2,7 +2,7 @@ import pytest
 from sensogrid.ble.protocol import FrameParser, decode_measurement, encode_frame
 
 
-def test_real_sensor_frame():
+def test_real_sensor_frame() -> None:
     frames = FrameParser().feed(bytes.fromhex("aaaaa2000600e802080100ef55"))
     assert len(frames) == 1
     assert decode_measurement(frames[0]) == {
@@ -13,7 +13,7 @@ def test_real_sensor_frame():
     }
 
 
-def test_fragmentation_coalescing_and_signed_temperature():
+def test_fragmentation_coalescing_and_signed_temperature() -> None:
     parser = FrameParser()
     packet = encode_frame(0xA2, bytes.fromhex("ffcc01c80300"))
     assert parser.feed(b"noise" + packet[:1]) == []
@@ -24,7 +24,7 @@ def test_fragmentation_coalescing_and_signed_temperature():
     assert decode_measurement(frames[1])["humidity"] == 45.6
 
 
-def test_invalid_checksum_tail_and_large_length_recover():
+def test_invalid_checksum_tail_and_large_length_recover() -> None:
     good = encode_frame(0xA2, bytes.fromhex("00e802080100"))
     corrupt = bytearray(good)
     corrupt[-2] ^= 1
@@ -37,7 +37,7 @@ def test_invalid_checksum_tail_and_large_length_recover():
     assert parser.invalid_frames >= 3
 
 
-def test_query_and_invalid_payload():
+def test_query_and_invalid_payload() -> None:
     assert encode_frame(0xA2, bytes.fromhex("01")).hex() == "aaaaa2000101f855"
     with pytest.raises(ValueError):
         decode_measurement(FrameParser().feed(encode_frame(0xA2, bytes.fromhex("00")))[0])

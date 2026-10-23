@@ -3,10 +3,13 @@
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.device import BLEDevice
 
 from .address import canonical_address
 from .protocol import FrameParser, decode_measurement, encode_frame
@@ -18,16 +21,34 @@ WRITE_UUID = "0000ffe9-0000-1000-8000-00805f9b34fb"
 BATTERY_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
 
+class BatteryCharacteristic(Protocol):
+    @property
+    def properties(self) -> Sequence[str]: ...
+
+
+class BatteryServices[Characteristic](Protocol):
+    def get_characteristic(self, specifier: str, /) -> Characteristic | None: ...
+
+
+class BatteryClient[Characteristic](Protocol):
+    @property
+    def services(self) -> BatteryServices[Characteristic]: ...
+
+    async def read_gatt_char(self, characteristic: Characteristic, /) -> bytes | bytearray: ...
+
+
 class LTDriver:
     protocol = "lt_thermometer"
 
     def __init__(self, diagnostics: bool = False) -> None:
         self.diagnostics = diagnostics
-        self.devices: dict[str, Any] = {}
-        self._battery: dict[str, dict] = {}
+        self.devices: dict[str, BLEDevice] = {}
+        self._battery: dict[str, dict[str, Any]] = {}
         self._battery_next: dict[str, float] = {}
 
-    async def _read_battery(self, client, address: str) -> dict:
+    async def _read_battery[Characteristic: BatteryCharacteristic](
+        self, client: BatteryClient[Characteristic], address: str
+    ) -> dict[str, Any]:
         now = time.monotonic()
         if now < self._battery_next.get(address, 0):
             return dict(self._battery.get(address, {}))
@@ -50,7 +71,7 @@ class LTDriver:
             logger.info("Optional battery read address=%s failed: %s", address, type(exc).__name__)
         return dict(self._battery.get(address, {}))
 
-    async def discover(self, timeout: float = 15) -> list[dict]:
+    async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
         devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
         found = []
         for device, adv in devices.values():
@@ -72,14 +93,14 @@ class LTDriver:
                 logger.info("BLE advertisement %s", row)
         return found
 
-    async def read_current(self, address: str, timeout: float = 12) -> dict:
+    async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]:
         device = self.devices.get(canonical_address(address))
         if device is None:
             raise LookupError("Sensor not discovered in current scan")
         parser = FrameParser()
-        result = asyncio.get_running_loop().create_future()
+        result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
 
-        def receive(_sender: Any, data: bytearray) -> None:
+        def receive(_sender: BleakGATTCharacteristic, data: bytearray) -> None:
             if self.diagnostics:
                 logger.info("BLE notification address=%s hex=%s", address, data.hex())
             for frame in parser.feed(bytes(data)):

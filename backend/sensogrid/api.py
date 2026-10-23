@@ -8,13 +8,18 @@ import time
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from .alerts import parse_time
+from .config import Settings
+from .db import Database
 from .diagnostics import build_bundle
-from .push import validate_endpoint
+from .push import PushService, validate_endpoint
+from .runtime import Runtime
 from .schemas import (
     Credentials,
     Floorplan,
@@ -32,13 +37,13 @@ from .schemas import (
 COOKIE = "sensogrid_session"
 
 
-def hash_password(password):
+def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     result = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=64)
     return salt.hex() + ":" + result.hex()
 
 
-def verify_password(password, stored):
+def verify_password(password: str, stored: str) -> bool:
     try:
         salt, expected = stored.split(":")
         actual = hashlib.scrypt(
@@ -57,7 +62,9 @@ class Bucket(StrEnum):
     month = "month"
 
 
-def model_merge(model, current, patch):
+def model_merge(
+    model: type[BaseModel], current: dict[str, Any], patch: dict[str, Any]
+) -> dict[str, Any]:
     if not isinstance(patch, dict):
         raise HTTPException(422, "Expected an object")
     value = {**current, **patch}
@@ -66,11 +73,19 @@ def model_merge(model, current, patch):
     return model.model_validate(value).model_dump(mode="json")
 
 
-def install_api(app):
-    auth = APIRouter(prefix="/api/auth")
-    attempts = defaultdict(deque)
+class ApplicationState(Protocol):
+    db: Database
+    settings: Settings
+    runtime: Runtime
+    push: PushService
 
-    async def same_origin(request: Request):
+
+def install_api(app: FastAPI) -> None:
+    state = cast(ApplicationState, app.state)
+    auth = APIRouter(prefix="/api/auth")
+    attempts: defaultdict[str, deque[float]] = defaultdict(deque)
+
+    async def same_origin(request: Request) -> None:
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             if request.headers.get("sec-fetch-site") == "cross-site":
                 raise HTTPException(403, "Cross-site request rejected")
@@ -86,14 +101,14 @@ def install_api(app):
                 ):
                     raise HTTPException(403, "Origin mismatch")
 
-    async def authenticated(request: Request):
+    async def authenticated(request: Request) -> dict[str, Any]:
         await same_origin(request)
-        user = app.state.db.session_user(request.cookies.get(COOKIE))
+        user = state.db.session_user(request.cookies.get(COOKIE))
         if not user:
             raise HTTPException(401, "Authentication required")
         return user
 
-    async def rate_limit(request: Request):
+    async def rate_limit(request: Request) -> None:
         await same_origin(request)
         key = request.client.host if request.client else "local"
         now = time.monotonic()
@@ -110,45 +125,45 @@ def install_api(app):
                 if not attempts[old] or attempts[old][-1] < now - 60:
                     attempts.pop(old, None)
 
-    def issue_session(response):
+    def issue_session(response: Response) -> None:
         token = secrets.token_urlsafe(32)
-        seconds = app.state.settings.session_hours * 3600
-        app.state.db.add_session(token, time.time() + seconds)
+        seconds = state.settings.session_hours * 3600
+        state.db.add_session(token, time.time() + seconds)
         response.set_cookie(
             COOKIE,
             token,
             max_age=seconds,
             httponly=True,
-            secure=app.state.settings.secure_cookies,
+            secure=state.settings.secure_cookies,
             samesite="strict",
             path="/",
         )
         response.headers["Cache-Control"] = "no-store"
 
     @auth.get("/status")
-    def status(request: Request):
-        user = app.state.db.session_user(request.cookies.get(COOKIE))
+    def status(request: Request) -> dict[str, Any]:
+        user = state.db.session_user(request.cookies.get(COOKIE))
         return {
-            "setup_required": not app.state.db.has_user(),
+            "setup_required": not state.db.has_user(),
             "authenticated": bool(user),
             "user": user,
         }
 
     @auth.post("/setup", dependencies=[Depends(rate_limit)])
-    async def setup(data: SetupCredentials, response: Response):
-        if app.state.db.has_user():
+    async def setup(data: SetupCredentials, response: Response) -> dict[str, Any]:
+        if state.db.has_user():
             raise HTTPException(409, "Setup already complete")
         encoded = await asyncio.to_thread(hash_password, data.password)
         try:
-            user = app.state.db.create_user(data.username, encoded)
+            user = state.db.create_user(data.username, encoded)
         except sqlite3.IntegrityError:
             raise HTTPException(409, "Setup already complete") from None
         issue_session(response)
         return user
 
     @auth.post("/login", dependencies=[Depends(rate_limit)])
-    async def login(data: Credentials, response: Response):
-        user = app.state.db.user(data.username)
+    async def login(data: Credentials, response: Response) -> dict[str, Any]:
+        user = state.db.user(data.username)
         valid = await asyncio.to_thread(
             verify_password,
             data.password,
@@ -160,21 +175,21 @@ def install_api(app):
         return {"id": user["id"], "username": user["username"]}
 
     @auth.get("/me")
-    def me(user=Depends(authenticated)):
+    def me(user: dict[str, Any] = Depends(authenticated)) -> dict[str, Any]:
         return user
 
     @auth.post("/logout", dependencies=[Depends(authenticated)])
-    def logout(request: Request, response: Response):
-        app.state.db.delete_session(request.cookies.get(COOKIE, ""))
+    def logout(request: Request, response: Response) -> dict[str, bool]:
+        state.db.delete_session(request.cookies.get(COOKIE, ""))
         response.delete_cookie(COOKIE, path="/")
         return {"ok": True}
 
     app.include_router(auth)
     api = APIRouter(prefix="/api", dependencies=[Depends(authenticated)])
-    diagnostic_downloads = deque()
+    diagnostic_downloads: deque[float] = deque()
 
     @api.get("/diagnostics")
-    def diagnostics_download():
+    def diagnostics_download() -> Response:
         now = time.monotonic()
         while diagnostic_downloads and diagnostic_downloads[0] < now - 60:
             diagnostic_downloads.popleft()
@@ -183,7 +198,7 @@ def install_api(app):
                 429, "Diagnostic download limit reached", headers={"Retry-After": "60"}
             )
         diagnostic_downloads.append(now)
-        content = build_bundle(app.state.settings, app.state.db, app.state.runtime)
+        content = build_bundle(state.settings, state.db, state.runtime)
         filename = "sensogrid-diagnostics-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + ".zip"
         return Response(
             content,
@@ -195,20 +210,20 @@ def install_api(app):
             },
         )
 
-    def sensor_views():
+    def sensor_views() -> list[dict[str, Any]]:
         now = datetime.now(UTC)
-        stale = app.state.db.system_settings()["stale_after_seconds"]
-        live = {m["sensor_id"]: m for m in app.state.runtime.current()}
+        stale = state.db.system_settings()["stale_after_seconds"]
+        live = {m["sensor_id"]: m for m in state.runtime.current()}
         result = []
-        for sensor in app.state.db.all_sensors():
+        for sensor in state.db.all_sensors():
             m = live.get(sensor["id"], {})
             if not sensor["enabled"] or m.get("room_id") != sensor["room_id"]:
                 m = {}
             seen = parse_time(m.get("timestamp"))
-            read_state = app.state.runtime.read_states.get(sensor["id"], "waiting")
+            read_state = state.runtime.read_states.get(sensor["id"], "waiting")
             available = bool(
                 sensor["enabled"]
-                and sensor["id"] not in app.state.runtime.unavailable_sensors
+                and sensor["id"] not in state.runtime.unavailable_sensors
                 and read_state != "unavailable"
                 and seen
                 and 0 <= (now - seen).total_seconds() <= stale
@@ -246,9 +261,9 @@ def install_api(app):
             )
         return result
 
-    def room_views(sensors):
+    def room_views(sensors: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result = []
-        for room in app.state.db.rooms():
+        for room in state.db.rooms():
             values = [s for s in sensors if s["room_id"] == room["id"] and s["available"]]
             result.append(
                 {
@@ -266,11 +281,11 @@ def install_api(app):
         return result
 
     @api.get("/dashboard")
-    def dashboard():
+    def dashboard() -> dict[str, Any]:
         sensors = sensor_views()
         available = [s for s in sensors if s["available"]]
         return {
-            "mode": app.state.settings.mode,
+            "mode": state.settings.mode,
             "now": datetime.now(UTC).isoformat(),
             "average_temperature": sum(s["temperature"] for s in available) / len(available)
             if available
@@ -280,33 +295,31 @@ def install_api(app):
             else None,
             "sensors": sensors,
             "rooms": room_views(sensors),
-            "status": app.state.runtime.state,
+            "status": state.runtime.state,
         }
 
     @api.get("/sensors")
-    def sensors():
+    def sensors() -> list[dict[str, Any]]:
         return sensor_views()
 
     @api.post("/sensors", status_code=201)
-    def add_sensor(data: SensorInput):
-        sensor_id = app.state.db.add_sensor(data.model_dump())
+    def add_sensor(data: SensorInput) -> dict[str, Any]:
+        sensor_id = state.db.add_sensor(data.model_dump())
         return next(s for s in sensor_views() if s["id"] == sensor_id)
 
     @api.post("/sensors/discover")
-    async def discover():
+    async def discover() -> dict[str, list[dict[str, Any]]]:
         try:
-            return {"devices": await asyncio.wait_for(app.state.runtime.discover(), timeout=60)}
+            return {"devices": await asyncio.wait_for(state.runtime.discover(), timeout=60)}
         except TimeoutError:
             raise HTTPException(504, "Bluetooth scan timed out") from None
         except Exception:
             raise HTTPException(503, "Bluetooth discovery unavailable") from None
 
     @api.post("/sensors/preview")
-    async def preview_sensor(data: SensorPreviewInput):
+    async def preview_sensor(data: SensorPreviewInput) -> dict[str, Any]:
         try:
-            return await asyncio.wait_for(
-                app.state.runtime.preview_sensor(data.address), timeout=150
-            )
+            return await asyncio.wait_for(state.runtime.preview_sensor(data.address), timeout=150)
         except TimeoutError:
             raise HTTPException(504, "Sensor measurement timed out") from None
         except Exception:
@@ -315,7 +328,7 @@ def install_api(app):
             ) from None
 
     @api.patch("/sensors/{sensor_id}")
-    def patch_sensor(sensor_id: str, data: SensorPatch):
+    def patch_sensor(sensor_id: str, data: SensorPatch) -> dict[str, Any]:
         patch = data.model_dump(exclude_unset=True)
         if any(
             value is None
@@ -323,30 +336,30 @@ def install_api(app):
             if key not in ("room_id", "sample_interval_seconds")
         ):
             raise HTTPException(422, "Only room_id and sample_interval_seconds can be null")
-        app.state.db.patch_sensor(sensor_id, patch)
+        state.db.patch_sensor(sensor_id, patch)
         return next(s for s in sensor_views() if s["id"] == sensor_id)
 
     @api.delete("/sensors/{sensor_id}")
-    def delete_sensor(sensor_id: str):
-        app.state.db.delete_sensor(sensor_id)
+    def delete_sensor(sensor_id: str) -> dict[str, bool]:
+        state.db.delete_sensor(sensor_id)
         return {"ok": True}
 
     @api.get("/rooms")
-    def rooms():
+    def rooms() -> list[dict[str, Any]]:
         return room_views(sensor_views())
 
     @api.get("/floorplan")
-    def floorplan():
-        return app.state.db.floorplan()
+    def floorplan() -> dict[str, Any]:
+        return state.db.floorplan()
 
     @api.get("/floorplan/export")
-    def export(response: Response):
+    def export(response: Response) -> dict[str, Any]:
         response.headers["Content-Disposition"] = 'attachment; filename="sensogrid-floorplan.json"'
-        return app.state.db.floorplan()
+        return state.db.floorplan()
 
     @api.post("/floorplan/preview")
-    def preview(data: Floorplan):
-        app.state.db.save_floorplan(data.model_dump(mode="json"), preview=True)
+    def preview(data: Floorplan) -> dict[str, Any]:
+        state.db.save_floorplan(data.model_dump(mode="json"), preview=True)
         return {
             "valid": True,
             "rooms": len(data.rooms),
@@ -356,9 +369,9 @@ def install_api(app):
         }
 
     @api.put("/floorplan")
-    def save_floorplan(data: Floorplan):
+    def save_floorplan(data: Floorplan) -> dict[str, Any]:
         plan = data.model_dump(mode="json")
-        app.state.db.save_floorplan(plan)
+        state.db.save_floorplan(plan)
         return plan
 
     @api.get("/history")
@@ -368,7 +381,7 @@ def install_api(app):
         bucket: Bucket = Bucket.hour,
         room_ids: str = "",
         sensor_ids: str = "",
-    ):
+    ) -> dict[str, Any]:
         if start.tzinfo is None or end.tzinfo is None:
             raise HTTPException(422, "Use timezone-aware ISO timestamps")
         start = start.astimezone(UTC)
@@ -380,7 +393,7 @@ def install_api(app):
         if len(rooms) > 100 or len(sensors) > 100:
             raise HTTPException(422, "Too many filters")
         try:
-            points = await app.state.runtime.history(start, end, rooms, sensors, bucket.value)
+            points = await state.runtime.history(start, end, rooms, sensors, bucket.value)
         except HTTPException:
             raise
         except ValueError as exc:
@@ -396,73 +409,73 @@ def install_api(app):
             raise HTTPException(422, "Too many points; choose a wider aggregation bucket")
         return {
             "points": points,
-            "source": "demo" if app.state.settings.mode == "demo" else "influxdb3",
+            "source": "demo" if state.settings.mode == "demo" else "influxdb3",
         }
 
     @api.get("/settings")
-    def settings():
-        return app.state.db.preferences()
+    def settings() -> dict[str, Any]:
+        return state.db.preferences()
 
     @api.patch("/settings")
-    def patch_settings(data: dict):
-        value = model_merge(Preferences, app.state.db.preferences(), data)
-        app.state.db.set_config("preferences", value)
+    def patch_settings(data: dict[str, Any]) -> dict[str, Any]:
+        value = model_merge(Preferences, state.db.preferences(), data)
+        state.db.set_config("preferences", value)
         return value
 
     @api.get("/system/settings")
-    def system_settings():
-        return app.state.db.system_settings()
+    def system_settings() -> dict[str, Any]:
+        return state.db.system_settings()
 
     @api.patch("/system/settings")
-    def patch_system(data: dict):
-        value = model_merge(SystemSettings, app.state.db.system_settings(), data)
-        app.state.db.set_config("system", value)
+    def patch_system(data: dict[str, Any]) -> dict[str, Any]:
+        value = model_merge(SystemSettings, state.db.system_settings(), data)
+        state.db.set_config("system", value)
         return value
 
     @api.get("/system/status")
-    def system_status():
+    def system_status() -> dict[str, Any]:
         return {
-            "mode": app.state.settings.mode,
-            **app.state.runtime.state,
-            "push_available": app.state.push.available,
+            "mode": state.settings.mode,
+            **state.runtime.state,
+            "push_available": state.push.available,
         }
 
     @api.get("/alerts/rules")
-    def rules():
-        return app.state.db.rules()
+    def rules() -> list[dict[str, Any]]:
+        return state.db.rules()
 
     @api.post("/alerts/rules", status_code=201)
-    def add_rule(data: RuleInput):
-        return app.state.db.save_rule(data.model_dump())
+    def add_rule(data: RuleInput) -> dict[str, Any]:
+        return state.db.save_rule(data.model_dump())
 
     @api.patch("/alerts/rules/{rule_id}")
-    def patch_rule(rule_id: str, data: dict):
-        old = next((r for r in app.state.db.rules() if r["id"] == rule_id), None)
+    def patch_rule(rule_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        old = next((r for r in state.db.rules() if r["id"] == rule_id), None)
         if old is None:
             raise HTTPException(404, "Rule not found")
         old.pop("id")
         value = model_merge(RuleInput, old, data)
-        return app.state.db.save_rule(value, rule_id)
+        return state.db.save_rule(value, rule_id)
 
     @api.delete("/alerts/rules/{rule_id}")
-    def delete_rule(rule_id: str):
-        app.state.db.delete_rule(rule_id)
+    def delete_rule(rule_id: str) -> dict[str, bool]:
+        state.db.delete_rule(rule_id)
         return {"ok": True}
 
     @api.get("/alerts/events")
-    def events():
-        return app.state.db.events()
+    def events() -> list[dict[str, Any]]:
+        return state.db.events()
 
     @api.get("/push/key")
-    def push_key():
+    def push_key() -> dict[str, bool | str | None]:
         return {
-            "available": app.state.push.available,
-            "public_key": app.state.settings.vapid_public_key or None,
+            "available": state.push.available,
+            "public_key": state.settings.vapid_public_key or None,
         }
 
     @api.post("/push/subscriptions", status_code=201)
-    async def subscribe(data: Subscription):
-        if not app.state.push.available:
+    async def subscribe(data: Subscription) -> dict[str, bool]:
+        if not state.push.available:
             raise HTTPException(503, "Web Push is not configured")
         await asyncio.to_thread(validate_endpoint, data.endpoint)
         for key, length in ((data.keys.p256dh, 65), (data.keys.auth, 16)):
@@ -472,24 +485,24 @@ def install_api(app):
                 valid = False
             if not valid:
                 raise HTTPException(422, "Invalid subscription keys")
-        app.state.db.save_subscription(data.model_dump())
+        state.db.save_subscription(data.model_dump())
         return {"ok": True}
 
     @api.delete("/push/subscriptions")
-    def unsubscribe(data: Unsubscribe):
-        app.state.db.delete_subscription(data.endpoint)
+    def unsubscribe(data: Unsubscribe) -> dict[str, bool]:
+        state.db.delete_subscription(data.endpoint)
         return {"ok": True}
 
     @api.post("/push/test")
-    async def test_push():
-        if not app.state.push.available:
+    async def test_push() -> dict[str, int]:
+        if not state.push.available:
             raise HTTPException(503, "Web Push is not configured")
-        return await app.state.push.dispatch(
+        return await state.push.dispatch(
             {"title": "SensoGrid", "body": "Test notification", "tag": "test"}
         )
 
     @api.get("/openapi.json", include_in_schema=False)
-    def openapi_schema():
+    def openapi_schema() -> dict[str, Any]:
         return app.openapi()
 
     app.include_router(api)

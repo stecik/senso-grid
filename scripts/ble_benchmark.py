@@ -23,11 +23,18 @@ import traceback
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, TypedDict
 
 from sensogrid.ble.lt import LTDriver
 from sensogrid.ble.radio import BLERadio
 
-PROFILES = {
+
+class Profile(TypedDict):
+    concurrency: int
+    stagger: float
+
+
+PROFILES: dict[str, Profile] = {
     "A": {"concurrency": 1, "stagger": 0.0},
     "B": {"concurrency": 2, "stagger": 0.0},
     "C": {"concurrency": 5, "stagger": 0.0},
@@ -143,12 +150,12 @@ def summarize_profile(events: list[dict], sensors: list[dict], planned_slots: in
 
 
 class Journal:
-    def __init__(self, path: Path, profile: str, start: float):
+    def __init__(self, path: Path, profile: str, start: float) -> None:
         self.file = path.open("x", encoding="utf-8")
         self.events: list[dict] = []
         self.profile, self.start = profile, start
 
-    def emit(self, kind: str, **fields) -> None:
+    def emit(self, kind: str, **fields: Any) -> None:
         row = {
             "kind": kind,
             "profile": self.profile,
@@ -160,11 +167,13 @@ class Journal:
         self.file.write(json.dumps(row, ensure_ascii=False) + "\n")
         self.file.flush()
 
-    def close(self):
+    def close(self) -> None:
         self.file.close()
 
 
-async def run_profile(profile: str, sensors: list[dict], output: Path, args) -> dict:
+async def run_profile(
+    profile: str, sensors: list[dict], output: Path, args: argparse.Namespace
+) -> dict:
     start = time.monotonic()
     planned = math.ceil(args.duration / args.interval)
     journal = Journal(output / f"{profile}.jsonl", profile, start)
@@ -174,7 +183,7 @@ async def run_profile(profile: str, sensors: list[dict], output: Path, args) -> 
     last_scan = 0.0
     signals: dict[str, int] = {}
 
-    async def scan(seconds: float, newer_than: float | None = None):
+    async def scan(seconds: float, newer_than: float | None = None) -> None:
         nonlocal last_scan
         async with radio.scan():
             if newer_than is not None and last_scan > newer_than:
@@ -194,7 +203,7 @@ async def run_profile(profile: str, sensors: list[dict], output: Path, args) -> 
                 ],
             )
 
-    async def poll(sensor: dict, slot: int, position: int):
+    async def poll(sensor: dict, slot: int, position: int) -> None:
         address = sensor["address"]
         scheduled = start + slot * args.interval
         status = "censored"
@@ -371,7 +380,7 @@ async def run_profile(profile: str, sensors: list[dict], output: Path, args) -> 
     return summary
 
 
-async def main(args):
+async def main(args: argparse.Namespace) -> None:
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     sensors = json.loads(Path(args.sensors).read_text(encoding="utf-8-sig"))
@@ -417,7 +426,7 @@ async def main(args):
     )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sensors", required=True)
     parser.add_argument("--output", required=True)

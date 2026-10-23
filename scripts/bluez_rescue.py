@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def recovery_reason(snapshot: dict, now: datetime, last_attempt: datetime | None
     return f"All {len(sensors)} enabled sensors lack a fresh sample for at least {threshold:g}s"
 
 
-def run_once(snapshot: dict, now: datetime, state_file: Path, restart) -> int:
+def run_once(snapshot: dict, now: datetime, state_file: Path, restart: Callable[[], object]) -> int:
     try:
         last_attempt = (
             timestamp(state_file.read_text(encoding="utf-8").strip())
@@ -77,7 +78,7 @@ def container_snapshot() -> dict:
 
 
 def probe() -> dict:
-    def capture(args):
+    def capture(args: list[str]) -> str:
         return subprocess.run(args, check=True, capture_output=True, text=True, timeout=20).stdout
 
     state = json.loads(capture(["docker", "inspect", "--format", "{{json .State}}", CONTAINER]))

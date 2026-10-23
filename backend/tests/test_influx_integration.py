@@ -12,7 +12,7 @@ from sensogrid.timeseries import InfluxStore
 @pytest.mark.skipif(
     not os.getenv("SENSOGRID_TEST_INFLUX_URL"), reason="real InfluxDB not requested"
 )
-async def test_real_core_write_query_and_historical_room_attribution():
+async def test_real_core_write_query_and_historical_room_attribution() -> None:
     store = InfluxStore(
         os.environ["SENSOGRID_TEST_INFLUX_URL"],
         os.environ["SENSOGRID_TEST_INFLUX_TOKEN"],

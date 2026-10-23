@@ -1,11 +1,38 @@
 from copy import deepcopy
+from typing import TypedDict
 
 import test_api
+from fastapi.testclient import TestClient
 
 client = test_api.client
 logged = test_api.logged
 
-PLAN = {
+
+class RoomPlan(TypedDict):
+    id: str
+    name: str
+    polygon: list[list[int]]
+
+
+class Placement(TypedDict):
+    sensor_id: str
+    room_id: str | None
+    x: int
+    y: int
+
+
+class Plan(TypedDict):
+    schema_version: int
+    id: str
+    name: str
+    units: str
+    width: int
+    height: int
+    rooms: list[RoomPlan]
+    sensors: list[Placement]
+
+
+PLAN: Plan = {
     "schema_version": 1,
     "id": "home",
     "name": "Home",
@@ -17,7 +44,7 @@ PLAN = {
 }
 
 
-def test_atomic_import_assignments_stable_rooms(logged):
+def test_atomic_import_assignments_stable_rooms(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     plan = deepcopy(PLAN)
     plan["sensors"] = [{"sensor_id": sensor["id"], "room_id": "room-1", "x": 2, "y": 2}]
@@ -44,7 +71,7 @@ def test_atomic_import_assignments_stable_rooms(logged):
     }
 
 
-def test_reject_invalid_geometry_and_duplicates(logged):
+def test_reject_invalid_geometry_and_duplicates(logged: TestClient) -> None:
     for polygon in (
         [[0, 0], [5, 5], [0, 5], [5, 0]],
         [[0, 0], [5, 0], [10, 0]],
@@ -63,7 +90,7 @@ def test_reject_invalid_geometry_and_duplicates(logged):
     assert logged.put("/api/floorplan", json=plan).status_code == 422
 
 
-def test_delete_sensor_clears_placement_and_preserves_rules(logged):
+def test_delete_sensor_clears_placement_and_preserves_rules(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     plan = deepcopy(PLAN)
     plan["sensors"] = [{"sensor_id": sensor["id"], "room_id": "room-1", "x": 2, "y": 2}]
@@ -84,7 +111,7 @@ def test_delete_sensor_clears_placement_and_preserves_rules(logged):
     assert logged.get("/api/alerts/rules").json()[0]["id"] == rule["id"]
 
 
-def test_patch_assignment_updates_existing_plan(logged):
+def test_patch_assignment_updates_existing_plan(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     plan = deepcopy(PLAN)
     plan["sensors"] = [{"sensor_id": sensor["id"], "room_id": None, "x": 8, "y": 2}]
@@ -96,7 +123,7 @@ def test_patch_assignment_updates_existing_plan(logged):
     assert placement["room_id"] == "room-1" and placement["x"] <= 5
 
 
-def test_canvas_import_preview_and_apply_preserve_ids(logged):
+def test_canvas_import_preview_and_apply_preserve_ids(logged: TestClient) -> None:
     imported = {
         "schemaVersion": 1,
         "name": "My apartment",

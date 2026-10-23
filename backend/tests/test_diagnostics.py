@@ -1,11 +1,12 @@
 import json
 import logging
+from pathlib import Path
 
 from sensogrid.config import Settings
 from sensogrid.diagnostics import capture_logs, redact
 
 
-def test_diagnostic_logs_redact_secrets_and_keep_tracebacks(tmp_path):
+def test_diagnostic_logs_redact_secrets_and_keep_tracebacks(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path, influx_token="private-influx-token")
     with capture_logs(settings):
         try:
@@ -21,7 +22,7 @@ def test_diagnostic_logs_redact_secrets_and_keep_tracebacks(tmp_path):
     assert records[-1]["logger"] == "sensogrid.runtime"
 
 
-def test_redaction_removes_url_credentials_query_and_bearer():
+def test_redaction_removes_url_credentials_query_and_bearer() -> None:
     value = redact(
         'https://user:pass@example.com/path?token=secret Bearer abcdef "password": "hidden"'
     )
@@ -30,7 +31,7 @@ def test_redaction_removes_url_credentials_query_and_bearer():
     assert "example.com/path" in value
 
 
-def test_redaction_removes_complete_basic_authorization_and_cookie_headers():
+def test_redaction_removes_complete_basic_authorization_and_cookie_headers() -> None:
     value = redact(
         "Authorization: Basic dXNlcjpwYXNz\nCookie: session=a123; other=b456\npublic error"
     )
@@ -39,7 +40,7 @@ def test_redaction_removes_complete_basic_authorization_and_cookie_headers():
     assert "public error" in value
 
 
-def test_diagnostic_logs_rotate_instead_of_growing_without_bound(tmp_path):
+def test_diagnostic_logs_rotate_instead_of_growing_without_bound(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path)
     with capture_logs(settings):
         for _ in range(70):

@@ -1,4 +1,5 @@
-from typing import Literal
+from collections.abc import Sequence
+from typing import Literal, Self
 from unicodedata import category
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -39,7 +40,7 @@ class SensorInput(StrictModel):
 
     @field_validator("address", mode="before")
     @classmethod
-    def normalize_address(cls, value):
+    def normalize_address(cls, value: object) -> object:
         return canonical_address(value) if isinstance(value, str) else value
 
 
@@ -67,11 +68,11 @@ class Placement(StrictModel):
     y: float
 
 
-def cross(a, b, c):
+def cross(a: Sequence[float], b: Sequence[float], c: Sequence[float]) -> float:
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
 
-def on_segment(a, b, p):
+def on_segment(a: Sequence[float], b: Sequence[float], p: Sequence[float]) -> bool:
     return (
         abs(cross(a, b, p)) < 1e-9
         and min(a[0], b[0]) - 1e-9 <= p[0] <= max(a[0], b[0]) + 1e-9
@@ -79,14 +80,16 @@ def on_segment(a, b, p):
     )
 
 
-def intersects(a, b, c, d):
+def intersects(
+    a: Sequence[float], b: Sequence[float], c: Sequence[float], d: Sequence[float]
+) -> bool:
     ca, cb, cc, cd = cross(a, b, c), cross(a, b, d), cross(c, d, a), cross(c, d, b)
     return (ca * cb < 0 and cc * cd < 0) or any(
         (on_segment(a, b, c), on_segment(a, b, d), on_segment(c, d, a), on_segment(c, d, b))
     )
 
 
-def contains(poly, p):
+def contains(poly: Sequence[Sequence[float]], p: Sequence[float]) -> bool:
     inside = False
     for i, a in enumerate(poly):
         b = poly[(i + 1) % len(poly)]
@@ -125,7 +128,7 @@ class Floorplan(StrictModel):
 
     @model_validator(mode="before")
     @classmethod
-    def canvas_import(cls, value):
+    def canvas_import(cls, value: object) -> object:
         if isinstance(value, dict) and "schemaVersion" in value:
             imported = CanvasFloorplan.model_validate(value)
             return {
@@ -141,7 +144,7 @@ class Floorplan(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def geometry(self):
+    def geometry(self) -> Self:
         ids = [r.id for r in self.rooms]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate room IDs")
@@ -182,14 +185,14 @@ class Heatmap(StrictModel):
 
     @field_validator("temperature", mode="before")
     @classmethod
-    def legacy_temperature_limits(cls, value):
+    def legacy_temperature_limits(cls, value: object) -> object:
         # Older preferences stored a manually configured comfort midpoint.
         if isinstance(value, (list, tuple)) and len(value) == 3:
             return value[0], value[2]
         return value
 
     @model_validator(mode="after")
-    def ordered(self):
+    def ordered(self) -> Self:
         if not self.temperature[0] < self.temperature[1] or not self.humidity[0] < self.humidity[1]:
             raise ValueError("Heatmap limits must increase")
         return self
@@ -220,7 +223,7 @@ class RuleInput(StrictModel):
     enabled: bool = True
 
     @model_validator(mode="after")
-    def validate_rule(self):
+    def validate_rule(self) -> Self:
         if bool(self.sensor_id) == bool(self.room_id):
             raise ValueError("Exactly one target required")
         if self.metric == "offline":

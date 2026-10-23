@@ -7,6 +7,8 @@ import time
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
+from types import FrameType
+from typing import Any, NoReturn
 
 BASE = Path(__file__).resolve().parent
 APP = "sensogrid-app-1"
@@ -14,27 +16,27 @@ BENCH = "sensogrid-ble-benchmark-20261023"
 DEADLINE_SECONDS = 6600
 
 
-def state(event, **fields):
+def state(event: str, **fields: Any) -> None:
     row = {"utc": datetime.now(UTC).isoformat(), "event": event, **fields}
     with (BASE / "supervisor.jsonl").open("a") as file:
         file.write(json.dumps(row) + "\n")
     print(json.dumps(row), flush=True)
 
 
-def docker(*args, **kwargs):
+def docker(*args: str, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     return subprocess.run(["docker", *args], check=True, **kwargs)
 
 
-def restore():
+def restore() -> None:
     docker("start", APP, timeout=60)
     state("app_restored")
 
 
-def terminate(signum, frame):
+def terminate(signum: int, frame: FrameType | None) -> NoReturn:
     raise SystemExit(f"signal {signum}")
 
 
-def main():
+def main() -> None:
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)
     details = json.loads(subprocess.check_output(["docker", "inspect", APP]))[0]

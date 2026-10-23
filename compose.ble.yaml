@@ -3,6 +3,12 @@ services:
   app:
     volumes:
       - type: bind
+        source: /var/lib/sensogrid-diagnostics
+        target: /app/host-diagnostics
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
         source: /run/dbus
         target: /run/dbus
         read_only: true

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh SensoGrid host diagnostics every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=sensogrid-diagnostics.service
+
+[Install]
+WantedBy=timers.target

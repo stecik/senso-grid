@@ -17,6 +17,7 @@ from .ble.radio import BLERadio
 from .timeseries import InfluxStore, aggregate_points, bucket_start, utc
 
 logger = logging.getLogger(__name__)
+READ_ATTEMPTS = 5
 
 
 class Runtime:
@@ -144,7 +145,7 @@ class Runtime:
     async def _read_with_retry(self, address: str, sensor_id: str | None = None) -> dict:
         address = canonical_address(address)
         started = time.monotonic()
-        for attempt in range(3):
+        for attempt in range(READ_ATTEMPTS):
             if sensor_id:
                 self.read_states[sensor_id] = "reading" if attempt == 0 else "retrying"
             try:
@@ -155,7 +156,15 @@ class Runtime:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                if attempt == 2:
+                if attempt == READ_ATTEMPTS - 1:
+                    logger.warning(
+                        "BLE read exhausted address=%s attempts=%s reason=%s: %s",
+                        address,
+                        READ_ATTEMPTS,
+                        type(exc).__name__,
+                        str(exc),
+                        exc_info=True,
+                    )
                     if sensor_id:
                         self.read_states[sensor_id] = "unavailable"
                         self.unavailable_sensors.add(sensor_id)
@@ -189,6 +198,11 @@ class Runtime:
         if sensor is None:
             return
         sample = {k: row[k] for k in ("timestamp", "temperature", "humidity", "battery_raw")}
+        previous = self._latest.get(sensor["id"], {})
+        if previous.get("sensor_address") != sensor["address"]:
+            previous = {}
+        battery = row if row.get("battery_percent") is not None else previous
+        sample.update({key: battery.get(key) for key in ("battery_percent", "battery_timestamp")})
         sample.update(
             sensor_id=sensor["id"],
             room_id=sensor.get("room_id"),
@@ -374,7 +388,7 @@ class Runtime:
                         self._retry_after[sensor["id"]] = time.monotonic() + 30
                         self.read_states[sensor["id"]] = "unavailable"
                         self.state["last_error"] = (
-                            "Sensor read failed after 3 attempts; another cycle is scheduled in 30 seconds"
+                            f"Sensor read failed after {READ_ATTEMPTS} attempts; another cycle is scheduled in 30 seconds"
                         )
                         logger.warning(
                             "Sensor %s read failed after retries: %s",
@@ -392,6 +406,8 @@ class Runtime:
             except Exception as exc:
                 self.state["collector"] = "unavailable"
                 self.state["last_error"] = "Bluetooth unavailable; automatic retry scheduled"
-                logger.warning("BLE scan failed: %s", type(exc).__name__)
+                logger.warning(
+                    "BLE scan failed: %s: %s", type(exc).__name__, str(exc), exc_info=True
+                )
                 await asyncio.sleep(15)
             await asyncio.sleep(3)

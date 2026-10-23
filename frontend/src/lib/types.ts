@@ -1,6 +1,7 @@
+export interface BatteryReading {battery_percent?:number|null;battery_timestamp?:string|null}
 export type Metric = 'temperature' | 'humidity'
 export type ChartMetric = Metric | 'both'
-export interface Sensor {read_state?:'waiting'|'reading'|'retrying'|'ready'|'unavailable';id:string;name:string;address:string|null;protocol:string;room_id:string|null;enabled:boolean;sample_interval_seconds:number;interval_override_seconds?:number|null;last_seen:string|null;temperature:number|null;humidity:number|null;rssi:number|null;available:boolean;battery_raw:number|null}
+export interface Sensor extends BatteryReading {read_state?:'waiting'|'reading'|'retrying'|'ready'|'unavailable';id:string;name:string;address:string|null;protocol:string;room_id:string|null;enabled:boolean;sample_interval_seconds:number;interval_override_seconds?:number|null;last_seen:string|null;temperature:number|null;humidity:number|null;rssi:number|null;available:boolean;battery_raw:number|null}
 export interface Room {id:string;name:string;temperature:number|null;humidity:number|null;available:boolean}
 export type Point = [number,number]
 export interface PlanRoom {id:string;name:string;polygon:Point[]}
@@ -12,7 +13,7 @@ export interface HistoryPoint {timestamp:string;sensor_id:string;room_id:string|
 export interface History {points:HistoryPoint[];source:'demo'|'influxdb3'}
 export interface Rule {id:string;name:string;sensor_id:string|null;room_id:string|null;metric:Metric|'offline';operator:'above'|'below';threshold:number;duration_seconds:number;reset_threshold:number;enabled:boolean}
 export interface AlertEvent {id:string;rule_id:string;rule_name:string;state:'active'|'resolved';message:string;started_at:string;resolved_at:string|null}
-export interface SensorPreview {temperature:number;humidity:number;timestamp:string}
-export interface Discovered {available?:boolean;seen_in_scan?:boolean;temperature?:number;humidity?:number;timestamp?:string;measurement_error?:boolean;name:string;address:string;rssi:number;protocol:string|null;service_uuids:string[];manufacturer_data:unknown;service_data:unknown}
+export interface SensorPreview extends BatteryReading {temperature:number;humidity:number;timestamp:string}
+export interface Discovered extends BatteryReading {available?:boolean;seen_in_scan?:boolean;temperature?:number;humidity?:number;timestamp?:string;measurement_error?:boolean;name:string;address:string;rssi:number;protocol:string|null;service_uuids:string[];manufacturer_data:unknown;service_data:unknown}
 export interface Auth {setup_required:boolean;authenticated:boolean;user:{id:string;username:string}|null}
 export interface SystemSettings {sample_interval_seconds:number;stale_after_seconds:number}

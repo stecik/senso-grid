@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     stale_after_seconds: int = Field(1800, ge=30, le=604800)
     ble_concurrency: int = Field(2, ge=1, le=10)
     diagnostics: bool = False
+    host_diagnostics_dir: Path = Path("/app/host-diagnostics")
     vapid_private_key: str = ""
     vapid_public_key: str = ""
     vapid_subject: str = "mailto:admin@example.invalid"

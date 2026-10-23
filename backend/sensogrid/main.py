@@ -14,6 +14,7 @@ from .alerts import AlertEngine
 from .api import install_api
 from .config import Settings
 from .db import Database
+from .diagnostics import capture_logs
 from .push import PushService
 from .runtime import Runtime
 
@@ -24,7 +25,7 @@ def create_app(settings: Settings | None = None, runtime_factory=Runtime) -> Fas
     settings = settings or Settings()
 
     @asynccontextmanager
-    async def lifespan(app):
+    async def run_lifespan(app):
         db = Database(settings.data_dir / "sensogrid.sqlite3", settings)
         if settings.mode == "demo":
             db.seed_demo()
@@ -54,6 +55,16 @@ def create_app(settings: Settings | None = None, runtime_factory=Runtime) -> Fas
             with suppress(asyncio.CancelledError):
                 await task
             await runtime.stop()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        with capture_logs(settings):
+            try:
+                async with run_lifespan(app):
+                    yield
+            except Exception:
+                logger.exception("Application lifecycle failed")
+                raise
 
     app = FastAPI(
         title="SensoGrid",

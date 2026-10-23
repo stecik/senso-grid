@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 SERVICE_UUID = "0000ffe5-0000-1000-8000-00805f9b34fb"
 NOTIFY_UUID = "0000ffe8-0000-1000-8000-00805f9b34fb"
 WRITE_UUID = "0000ffe9-0000-1000-8000-00805f9b34fb"
+BATTERY_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
 
 class LTDriver:
@@ -22,6 +24,31 @@ class LTDriver:
     def __init__(self, diagnostics: bool = False) -> None:
         self.diagnostics = diagnostics
         self.devices: dict[str, Any] = {}
+        self._battery: dict[str, dict] = {}
+        self._battery_next: dict[str, float] = {}
+
+    async def _read_battery(self, client, address: str) -> dict:
+        now = time.monotonic()
+        if now < self._battery_next.get(address, 0):
+            return dict(self._battery.get(address, {}))
+        self._battery_next[address] = now + 300
+        try:
+            char = client.services.get_characteristic(BATTERY_UUID)
+            if char is None or "read" not in char.properties:
+                self._battery_next[address] = now + 3600
+                return dict(self._battery.get(address, {}))
+            async with asyncio.timeout(2):
+                value = await client.read_gatt_char(char)
+            if len(value) != 1 or not 0 <= value[0] <= 100:
+                raise ValueError("Invalid standard Battery Level value")
+            self._battery[address] = {
+                "battery_percent": int(value[0]),
+                "battery_timestamp": datetime.now(UTC).isoformat(),
+            }
+            self._battery_next[address] = now + 3600
+        except Exception as exc:
+            logger.info("Optional battery read address=%s failed: %s", address, type(exc).__name__)
+        return dict(self._battery.get(address, {}))
 
     async def discover(self, timeout: float = 15) -> list[dict]:
         devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
@@ -66,7 +93,7 @@ class LTDriver:
                 if not result.done():
                     result.set_result({**sample, "timestamp": datetime.now(UTC).isoformat()})
 
-        async with asyncio.timeout(timeout + 15):
+        async with asyncio.timeout(timeout + 17):
             async with BleakClient(device, timeout=15) as client:
                 notify = client.services.get_characteristic(NOTIFY_UUID)
                 write = client.services.get_characteristic(WRITE_UUID)
@@ -84,7 +111,9 @@ class LTDriver:
                     await client.write_gatt_char(
                         write, encode_frame(0xA2, b"\x01"), response="write" in write.properties
                     )
-                    return await asyncio.wait_for(result, timeout)
+                    sample = await asyncio.wait_for(result, timeout)
+                    sample.update(await self._read_battery(client, canonical_address(address)))
+                    return sample
                 finally:
                     if client.is_connected:
                         await client.stop_notify(notify)

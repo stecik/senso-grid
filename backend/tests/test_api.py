@@ -462,6 +462,102 @@ def test_fresh_measurement_stays_available_until_retries_exhausted(logged):
     assert logged.get("/api/dashboard").json()["sensors"][0]["available"]
 
 
+def test_offline_sensor_retains_server_sample_without_entering_live_averages(logged):
+    sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
+    runtime = logged.app.state.runtime
+    timestamp = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    runtime.readings = [
+        {
+            "sensor_id": sensor["id"],
+            "room_id": None,
+            "timestamp": timestamp,
+            "temperature": 22.4,
+            "humidity": 47,
+            "battery_percent": 0,
+            "battery_timestamp": timestamp,
+        }
+    ]
+    runtime.read_states = {sensor["id"]: "unavailable"}
+    runtime.unavailable_sensors = {sensor["id"]}
+    view = logged.get("/api/sensors").json()[0]
+    assert view["temperature"] == 22.4
+    assert view["humidity"] == 47
+    assert view["last_seen"] == timestamp
+    assert view["available"] is False
+    assert view["battery_percent"] == 0
+    assert view["battery_timestamp"] == timestamp
+    dashboard = logged.get("/api/dashboard").json()
+    assert dashboard["average_temperature"] is None
+    assert dashboard["average_humidity"] is None
+
+
+def test_diagnostics_download_requires_login(client):
+    assert client.get("/api/diagnostics").status_code == 401
+
+
+def test_diagnostics_download_is_redacted_zip_and_reports_missing_host_logs(logged):
+    import io
+    import json
+    import zipfile
+
+    response = logged.get("/api/diagnostics")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["cache-control"] == "no-store"
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert {"manifest.json", "snapshot.json"} <= set(archive.namelist())
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["host_logs"]["available"] is False
+        snapshot = json.loads(archive.read("snapshot.json"))
+        assert snapshot["configuration"]["mode"] == "off"
+        assert not any(name.endswith((".sqlite3", ".env")) for name in archive.namelist())
+        contents = b"\n".join(archive.read(name) for name in archive.namelist())
+        assert b"Safe-password-123" not in contents
+        assert b"sensogrid_session" not in contents
+
+
+def test_diagnostics_includes_host_snapshot_and_redacts_settings_secrets(logged, tmp_path):
+    import io
+    import json
+    import zipfile
+
+    settings = logged.app.state.settings
+    settings.host_diagnostics_dir = tmp_path / "host"
+    settings.host_diagnostics_dir.mkdir()
+    settings.influx_token = "a-private-token-value"
+    payload = {
+        "created_utc": datetime.now(UTC).isoformat(),
+        "commands": {"bluetooth": {"output": "error a-private-token-value"}},
+    }
+    (settings.host_diagnostics_dir / "host.json").write_text(json.dumps(payload))
+    with zipfile.ZipFile(io.BytesIO(logged.get("/api/diagnostics").content)) as archive:
+        assert json.loads(archive.read("manifest.json"))["host_logs"]["available"]
+        assert b"a-private-token-value" not in archive.read("host.json")
+        for name in archive.namelist():
+            if name.startswith("application/"):
+                for line in archive.read(name).decode().splitlines():
+                    assert isinstance(json.loads(line), dict)
+
+
+def test_diagnostics_limits_repeated_downloads(logged):
+    assert [logged.get("/api/diagnostics").status_code for _ in range(4)] == [200, 200, 200, 429]
+
+
+def test_invalid_host_snapshot_does_not_break_application_download(logged, tmp_path):
+    import io
+    import json
+    import zipfile
+
+    settings = logged.app.state.settings
+    settings.host_diagnostics_dir = tmp_path / "host-invalid"
+    settings.host_diagnostics_dir.mkdir()
+    (settings.host_diagnostics_dir / "host.json").write_text("[]")
+    response = logged.get("/api/diagnostics")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert not json.loads(archive.read("manifest.json"))["host_logs"]["available"]
+
+
 def test_same_mac_with_different_format_does_not_create_another_sensor(logged):
     first = logged.post(
         "/api/sensors", json={"name": "Ložnice", "address": "AA:BB:CC:DD:EE:FF"}

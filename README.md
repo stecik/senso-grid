@@ -188,7 +188,7 @@ Bluetooth sběr běží nativně ve Windows, InfluxDB v Dockeru. Po instalaci z�
 
 Aplikace běží na http://127.0.0.1:8000 v režimu BLE. V Nastavení vyhledej senzory; nalezená zařízení načtou teplotu a vlhkost asynchronně ještě před přidáním. Při neúspěchu použij Změřit znovu. Potom vybrané senzory přidej. Nalezená zařízení zůstávají v seznamu i při výpadku nebo dalším hledání; lze je přidat a upravit offline. Poslední hodnoty mají vlastní čas měření. Seznam si pamatuje tento prohlížeč pro přihlášený účet. Seznam ukazuje poslední teplotu, vlhkost a čas měření, obnovuje se každých 5 sekund; fyzické měření řídí interval sběru (výchozí 900 sekund). Při identifikaci lze dočasně nastavit kratší interval. V Půdorysu importuj vlastní JSON a vyber senzor a místnost. Import podporuje export SensoGridu i formát s `schemaVersion: 1`, `units: "meters"`, `canvas: {width, height}` a `rooms`; před použitím zobrazí validovaný náhled. Měření zůstává uložené podle ID senzoru i bez přiřazené místnosti.
 
-Sběr BLE při chybě provede celkem tři pokusy s prodlevami 1 a 2 sekundy. Po vyčerpání pokusů následuje nový cyklus za 30 sekund; běžný interval tento retry neodkládá. Při změně přiřazení senzoru se nové měření spustí bez čekání na běžný interval. Poslední skutečné hodnoty přežijí restart, stále platí nastavená hranice zastarání a přiřazení k místnosti.
+Sběr BLE při chybě provede celkem pět pokusů s prodlevami 1, 2, 4 a 8 sekund. Po vyčerpání pokusů následuje nový cyklus za 30 sekund; běžný interval tento retry neodkládá. Při změně přiřazení senzoru se nové měření spustí bez čekání na běžný interval. Poslední skutečné hodnoty přežijí restart, stále platí nastavená hranice zastarání a přiřazení k místnosti.
 
 Senzory v Nastavení tvoří jediný seznam podle MAC adresy. Uložený název, ID a přiřazení mají přednost před BLE názvem; opakované hledání nevytváří další záznam. MAC se porovnává bez ohledu na velikost písmen, dvojtečky, pomlčky a mezery; API brání duplicitní registraci.
 
@@ -203,3 +203,13 @@ Sběr i náhledy používají asynchronní čtení. Limit souběžných BLE spoj
 Výchozí souběh BLE je nyní 2. Historie propojuje chybějící úseky čarou mezi skutečnými vzorky; žádné náhradní vzorky se neukládají a statistiky se nemění.
 
 Volitelný [hostitelský systemd timer](diagnostics/ble-rescue/README.md) restartuje pouze bluetooth.service, pokud všechny zapnuté senzory přestanou dodávat data nejméně na 10 minut (nebo trojnásobek nejdelšího intervalu měření). Stejná ochranná lhůta platí po startu aplikace. Další pokus nejdříve za 30 minut; jednotlivý nedostupný senzor restart nevyvolá. Instalace vyžaduje sudo; aplikace zůstává bez root oprávnění. Restart krátce přeruší i ostatní Bluetooth spojení hostitele. Jde o dočasnou záchranu, ne opravu příčiny pádu BlueZ 5.82-1.1+sensogrid1.
+
+Nastavení ukazuje poslední skutečné hodnoty a jejich čas i u nedostupných senzorů. API je při výpadku nevynuluje, takže je nenahradí starší náhled z prohlížeče. Dostupnost řídí příznak available; aktuální průměry a místnosti nadále používají pouze dostupné senzory.
+
+## Diagnostika a baterie
+
+V Nastavení lze stáhnout ZIP s posledními aplikačními logy a stavem senzorů. Pro systémové logy BlueZ je připraven volitelný čtecí helper; aplikace zůstává bez root oprávnění. [Nasazení a obsah diagnostiky](docs/diagnostics-and-battery.md).
+
+Baterie se zobrazuje v procentech ze standardní charakteristiky Bluetooth 2A19, nikoli přepočtem battery_raw. Pokud hodnotu firmware neposkytne, zobrazí se „—“. Čte se ve stejném spojení nejvýše jednou za hodinu; upozornění na baterii zatím nejsou přidána.
+
+Další šetření pádů, chybějících core dumpů a výběru adaptéru: [stav a ověřovací postup](docs/ble-stability-investigation-2026-10-23.md).

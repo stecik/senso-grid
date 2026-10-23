@@ -1,0 +1,15 @@
+[Unit]
+Description=Collect read-only Bluetooth support diagnostics for SensoGrid
+After=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/sensogrid/collect_host_diagnostics.py
+StateDirectory=sensogrid-diagnostics
+StateDirectoryMode=0755
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX

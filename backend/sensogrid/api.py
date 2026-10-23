@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from .alerts import parse_time
+from .diagnostics import build_bundle
 from .push import validate_endpoint
 from .schemas import (
     Credentials,
@@ -170,6 +171,29 @@ def install_api(app):
 
     app.include_router(auth)
     api = APIRouter(prefix="/api", dependencies=[Depends(authenticated)])
+    diagnostic_downloads = deque()
+
+    @api.get("/diagnostics")
+    def diagnostics_download():
+        now = time.monotonic()
+        while diagnostic_downloads and diagnostic_downloads[0] < now - 60:
+            diagnostic_downloads.popleft()
+        if len(diagnostic_downloads) >= 3:
+            raise HTTPException(
+                429, "Diagnostic download limit reached", headers={"Retry-After": "60"}
+            )
+        diagnostic_downloads.append(now)
+        content = build_bundle(app.state.settings, app.state.db, app.state.runtime)
+        filename = "sensogrid-diagnostics-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + ".zip"
+        return Response(
+            content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     def sensor_views():
         now = datetime.now(UTC)
@@ -208,10 +232,14 @@ def install_api(app):
                 }
                 | {
                     "last_seen": m.get("timestamp") or sensor["last_seen"],
-                    "temperature": m.get("temperature") if available else None,
-                    "humidity": m.get("humidity") if available else None,
+                    # Preserve the authoritative last sample even while offline.
+                    # Live room/dashboard averages still filter by availability.
+                    "temperature": m.get("temperature"),
+                    "humidity": m.get("humidity"),
                     "rssi": m.get("rssi"),
                     "battery_raw": m.get("battery_raw"),
+                    "battery_percent": m.get("battery_percent"),
+                    "battery_timestamp": m.get("battery_timestamp"),
                     "available": available,
                     "read_state": read_state,
                 }

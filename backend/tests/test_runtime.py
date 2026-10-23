@@ -144,7 +144,7 @@ def test_reassignment_hides_old_live_reading(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_preview_retries_twice_with_backoff_then_succeeds(tmp_path, monkeypatch):
+async def test_preview_retries_four_times_with_backoff_then_succeeds(tmp_path, monkeypatch):
     delays = []
 
     async def pause(delay):
@@ -160,7 +160,7 @@ async def test_preview_retries_twice_with_backoff_then_succeeds(tmp_path, monkey
 
         async def read_current(self, address):
             self.calls += 1
-            if self.calls < 3:
+            if self.calls < 5:
                 raise TimeoutError("Temporary radio loss")
             return {
                 "temperature": 22.4,
@@ -173,8 +173,25 @@ async def test_preview_retries_twice_with_backoff_then_succeeds(tmp_path, monkey
     runtime.driver = Driver()
     result = await runtime.preview_sensor("AA:BB")
     assert result["temperature"] == 22.4
-    assert runtime.driver.calls == 3
-    assert delays == [1, 2]
+    assert runtime.driver.calls == 5
+    assert delays == [1, 2, 4, 8]
+
+
+def test_last_known_battery_zero_survives_a_later_optional_read_failure(tmp_path):
+    from sensogrid.db import Database
+
+    db = Database(tmp_path / "metadata.sqlite3")
+    sensor_id = db.add_sensor(
+        {"name": "Desk", "address": "AA:BB", "room_id": None, "protocol": "lt_thermometer"}
+    )
+    runtime = Runtime(settings(tmp_path, "ble"), db)
+    runtime._outbox.mkdir()
+    timestamp = datetime.now(UTC).isoformat()
+    row = {"timestamp": timestamp, "temperature": 22.4, "humidity": 47, "battery_raw": 0}
+    runtime._publish_reading("AA:BB", {**row, "battery_percent": 0, "battery_timestamp": timestamp})
+    runtime._publish_reading("AA:BB", row)
+    assert runtime._latest[sensor_id]["battery_percent"] == 0
+    assert runtime._latest[sensor_id]["battery_timestamp"] == timestamp
 
 
 @pytest.mark.asyncio
@@ -272,7 +289,7 @@ async def test_room_change_or_failure_does_not_wait_for_sampling_interval(
 
 
 @pytest.mark.asyncio
-async def test_three_failed_reads_preserve_last_sample_and_stop_retrying(tmp_path, monkeypatch):
+async def test_five_failed_reads_preserve_last_sample_and_stop_retrying(tmp_path, monkeypatch):
     from sensogrid.db import Database
 
     db = Database(tmp_path / "metadata.sqlite3")
@@ -308,8 +325,8 @@ async def test_three_failed_reads_preserve_last_sample_and_stop_retrying(tmp_pat
     runtime.driver = Driver()
     with pytest.raises(TimeoutError):
         await runtime.preview_sensor("AA:BB")
-    assert runtime.driver.calls == 3
-    assert delays == [1, 2]
+    assert runtime.driver.calls == 5
+    assert delays == [1, 2, 4, 8]
     assert runtime._latest[sensor_id] == sample
     assert runtime.read_states[sensor_id] == "unavailable"
     assert sensor_id in Runtime(settings(tmp_path, "ble"), db).unavailable_sensors

@@ -33,15 +33,15 @@ export function restoreDiscovery(value:string|null):Discovered[]{
 }
 
 export const macKey=(address:string)=>address.replace(/[:\-\s]/g,'').toUpperCase()
-export interface CatalogueSensor {key:string;name:string;address:string|null;protocol:string|null;rssi:number|null;temperature:number|null;humidity:number|null;timestamp?:string|null;available?:boolean;read_state?:Sensor['read_state'];saved?:Sensor;device?:Discovered}
+export interface CatalogueSensor {battery_percent?:number|null;battery_timestamp?:string|null;key:string;name:string;address:string|null;protocol:string|null;rssi:number|null;temperature:number|null;humidity:number|null;timestamp?:string|null;available?:boolean;read_state?:Sensor['read_state'];saved?:Sensor;device?:Discovered}
 export function sensorCatalogue(discovered:Discovered[],saved:Sensor[]):CatalogueSensor[]{
  const candidates=new Map(discovered.map(device=>[macKey(device.address),device]))
  const rows:CatalogueSensor[]=saved.map(sensor=>{
   const key=sensor.address?macKey(sensor.address):sensor.id,device=candidates.get(key)
   candidates.delete(key)
   const fromServer=sensor.temperature!=null&&sensor.humidity!=null
-  return {key,name:sensor.name,address:sensor.address,protocol:sensor.protocol,rssi:sensor.rssi??device?.rssi??null,temperature:fromServer?sensor.temperature:device?.temperature??null,humidity:fromServer?sensor.humidity:device?.humidity??null,timestamp:fromServer?sensor.last_seen:device?.timestamp??sensor.last_seen,available:sensor.available,read_state:sensor.read_state,saved:sensor,device}
+  return {battery_percent:sensor.battery_percent??device?.battery_percent,battery_timestamp:sensor.battery_timestamp??device?.battery_timestamp,key,name:sensor.name,address:sensor.address,protocol:sensor.protocol,rssi:sensor.rssi??device?.rssi??null,temperature:fromServer?sensor.temperature:device?.temperature??null,humidity:fromServer?sensor.humidity:device?.humidity??null,timestamp:fromServer?sensor.last_seen:device?.timestamp??sensor.last_seen,available:sensor.available,read_state:sensor.read_state,saved:sensor,device}
  })
- for(const [key,device] of candidates)rows.push({key,name:device.name,address:device.address,protocol:device.protocol,rssi:device.rssi,temperature:device.temperature??null,humidity:device.humidity??null,timestamp:device.timestamp,available:device.available,device})
+ for(const [key,device] of candidates)rows.push({battery_percent:device.battery_percent,battery_timestamp:device.battery_timestamp,key,name:device.name,address:device.address,protocol:device.protocol,rssi:device.rssi,temperature:device.temperature??null,humidity:device.humidity??null,timestamp:device.timestamp,available:device.available,device})
  return rows
 }

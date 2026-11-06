@@ -31,34 +31,6 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.settings = settings
         self.migrate()
-        if settings is not None and settings.mode == "ble":
-            self._apply_gentle_ble_profile()
-
-    def _apply_gentle_ble_profile(self) -> None:
-        with self.connection() as c:
-            c.execute("BEGIN IMMEDIATE")
-            if c.execute("SELECT 1 FROM config WHERE key='ble_gentle_profile_v1'").fetchone():
-                return
-            row = c.execute("SELECT value FROM config WHERE key='system'").fetchone()
-            system = (
-                json.loads(row[0])
-                if row
-                else {
-                    "sample_interval_seconds": getattr(
-                        self.settings, "sample_interval_seconds", 300
-                    ),
-                    "stale_after_seconds": getattr(self.settings, "stale_after_seconds", 1800),
-                }
-            )
-            system["sample_interval_seconds"] = max(300, system["sample_interval_seconds"])
-            c.execute(
-                "INSERT INTO config VALUES('system',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (json.dumps(system),),
-            )
-            c.execute(
-                "UPDATE sensors SET sample_interval_seconds=300 WHERE sample_interval_seconds<300"
-            )
-            c.execute("INSERT INTO config VALUES('ble_gentle_profile_v1','true')")
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection]:
@@ -131,7 +103,7 @@ class Database:
         return self.config(
             "system",
             {
-                "sample_interval_seconds": getattr(self.settings, "sample_interval_seconds", 300),
+                "sample_interval_seconds": getattr(self.settings, "sample_interval_seconds", 60),
                 "stale_after_seconds": getattr(self.settings, "stale_after_seconds", 1800),
             },
         )
@@ -433,7 +405,7 @@ class Database:
                 c.execute("INSERT OR IGNORE INTO rooms VALUES(?,?,0)", (r["id"], r["name"]))
                 sid = "demo-" + r["id"]
                 c.execute(
-                    "INSERT OR IGNORE INTO sensors VALUES(?,?,NULL,'lt_thermometer',?,1,NULL,NULL,?)",
+                    "INSERT OR IGNORE INTO sensors VALUES(?,?,NULL,'bthome_v2',?,1,NULL,NULL,?)",
                     (sid, r["name"], r["id"], time.time()),
                 )
                 p = r["polygon"]

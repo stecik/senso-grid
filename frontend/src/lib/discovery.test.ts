@@ -2,6 +2,16 @@ import {describe,it,expect} from 'vitest'
 import {mergeDiscovery,failedPreview,restoreDiscovery,sensorCatalogue} from './discovery'
 import type {Discovered,Sensor} from './types'
 const found:Discovered={name:'LT_room',address:'AA:BB',rssi:-60,protocol:'lt_thermometer',service_uuids:[],manufacturer_data:{},service_data:{},temperature:22.4,humidity:47,timestamp:'2026-10-22T18:00:00Z',available:true}
+
+it('uses current BTHome availability and protocol instead of cached LT data',()=>{
+ const result=mergeDiscovery([found],[{...found,protocol:'bthome_v2',available:true,battery_percent:90}])
+ expect(result[0]).toMatchObject({protocol:'bthome_v2',available:true,battery_percent:90})
+})
+
+it('does not revive an unavailable sighting from cached readings',()=>{
+ const result=mergeDiscovery([found],[{...found,available:false}])
+ expect(result[0]?.available).toBe(false)
+})
 describe('discovery survives temporary loss',()=>{
  it('keeps a missing sensor and its last measurement after an empty scan',()=>{
   const result=mergeDiscovery([found],[])

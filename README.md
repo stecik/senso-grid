@@ -1,6 +1,6 @@
 # SensoGrid
 
-Lokální monitor teploty a vlhkosti. Vue 3 PWA + FastAPI, SQLite pro nastavení, InfluxDB 3 Core pro historii. Dva runtime kontejnery. Ověřený BLE driver pro LT_7506 / teploměry používající protokol aplikace LT_Thermometer.
+Lokální monitor teploty a vlhkosti. Vue 3 PWA + FastAPI, SQLite pro nastavení, InfluxDB 3 Core pro historii. Dva runtime kontejnery. Xiaomi LYWSD03MMC s pvvx ATC firmwarem (ověřeno v5.9): teplota, vlhkost a baterie z nešifrovaných BTHome v2 reklam, bez BLE spojení.
 
 ## Co aplikace obsahuje
 
@@ -9,7 +9,7 @@ Lokální monitor teploty a vlhkosti. Vue 3 PWA + FastAPI, SQLite pro nastavení
 - Editor polygonů, vrcholů a umístění senzorů; grid, snap, zoom/pan, undo/redo.
 - Validovaný JSON import s náhledem a atomickým uložením; export s verzí schématu.
 - Historické ECharts grafy, srovnání místností, rozsahy a agregace.
-- BLE discovery, dotaz na aktuální měření, diagnostika, opakování po chybě.
+- Průběžný příjem BTHome reklam, hledání senzorů, náhled měření a diagnostika.
 - Pravidla teploty/vlhkosti/neaktivity s dobou trvání, hysterezí a historií.
 - Lokální přihlášení, nastavení napříč zařízeními, volitelný Web Push.
 - Explicitní demo režim. Simulace se nikdy nepoužije jako náhrada výpadku reálného úložiště.
@@ -79,28 +79,15 @@ sudo systemctl reload dbus
 docker compose -f compose.yaml -f compose.ble.yaml up -d --build
 ```
 
-Rozšíření připojuje hostitelský systémový D-Bus socket; bez privileged a bez předávání celého /dev. Aplikace běží jako UID/GID 10001. Oprávnění k org.bluez musí dovolit hostitelská D-Bus policy pro tuto identitu. Nejprve ověř běžné Bleak připojení na hostu a logy app; neřeš problém globálním privileged. Některé distribuce budou vyžadovat cílenou D-Bus policy pro skupinu uživatele kontejneru. Mount /run/dbus zpřístupňuje systémový bus, proto používej důvěryhodný dedikovaný host.
+Rozšíření připojuje hostitelský systémový D-Bus socket; bez privileged a bez předávání celého /dev. Aplikace běží jako UID/GID 10001. Oprávnění k org.bluez musí dovolit hostitelská D-Bus policy pro tuto identitu. Nejprve ověř Bleak scan na hostu a logy app; neřeš problém globálním privileged. Některé distribuce budou vyžadovat cílenou D-Bus policy pro skupinu uživatele kontejneru. Mount /run/dbus zpřístupňuje systémový bus, proto používej důvěryhodný dedikovaný host.
 
 Windows Docker Desktop nenahrazuje hostitelský BlueZ. Windows nativní Bleak je podporovaný; linuxový kontejner na Windows nemá automaticky přístup k adaptéru PC.
 
-V Nastavení spusť hledání, přidej konkrétní LT_ senzor a přiřaď místnost. Neprobíhá automatické párování cizích zařízení. Nový senzor dědí globální interval (výchozí 300 s); vlastní override lze zrušit null přes API.
+V Nastavení spusť hledání, přidej konkrétní ATC senzor a přiřaď místnost. Zařízení se identifikují podle MAC, ne názvu; cizí nalezené zařízení se samo nezaregistruje. Nový senzor dědí interval ukládání historie (výchozí 60 s); vlastní override lze zrušit null přes API. Podrobnosti: [Xiaomi / BTHome](docs/xiaomi-bthome.md).
 
-### Dočasná oprava BlueZ na HomeServeru (23. 10. 2026)
+### Historické pády při GATT čtení LT senzorů
 
-**Pozdější nález při BLE benchmarku: 23. 10. v 11:25:26 CEST se BlueZ automaticky restartoval i s tímto balíkem, zatímco produkční aplikace byla zastavená. Backport proto nelze považovat za ověřené úplné řešení. Systémové logy potvrzují SIGSEGV; odpovídající debug symboly ukazují na gatt_db_attribute_write. Přesný mechanismus zatím určen není.**
-
-Při opakovaném čtení LT senzorů padá na HomeServeru `bluetoothd` během GATT discovery. Základ: Debian 13 amd64, kernel `6.12.96+deb13-amd64`, BlueZ `5.82-1.1`, adaptér Realtek `0bda:b85b`; aplikace používá Bleak `3.0.2` a dbus-fast `5.2.0`.
-
-Dočasný lokální balík **`bluez 5.82-1.1+sensogrid1`** zachovává Debian build a přidává dvě upstream opravy z 19. 10. 2026:
-
-- [`6cdb936ebb6a3906062605883470d6b3a4e8c89e`](https://github.com/bluez/bluez/commit/6cdb936ebb6a3906062605883470d6b3a4e8c89e): oznámení odstranění i neaktivní GATT služby, aby v discovery nezůstal uvolněný ukazatel.
-- [`a338533f913bf42b267aeba30f1344d85459c13c`](https://github.com/bluez/bluez/commit/a338533f913bf42b267aeba30f1344d85459c13c): zabránění dvojímu zařazení služby do fronty discovery.
-
-**Nasazeno 23. 10. 2026 v 10:23:49 CEST.** Build, 201 upstream testů a regresní test prošly. V 10:25:40 CEST ověřeno všech 5 nových BLE měření po nasazení, žádný nedostupný senzor a NRestarts=0. Jde o krátkou kontrolu; noční stabilita zatím ověřena není. Postup, testy a evidence jsou v [diagnostics/bluez-5.82-fixes/README.md](diagnostics/bluez-5.82-fixes/README.md), rozbor výpadku v [docs/incident-2026-10-23-bluez.md](docs/incident-2026-10-23-bluez.md). Restart BlueZ obnovil měření jen dočasně; tato oprava cílí na chybu životnosti GATT služeb. Trvalou stabilitu je potřeba ověřit delším během všech pěti senzorů.
-
-Balíky a návratová verze jsou na hostiteli v `/home/marek/sensogrid-bluez-5.82-fix-20261023/artifacts/`. Instalátor zálohuje konfiguraci a párovací stav Bluetooth do neveřejného adresáře `backup-<UTC čas>`. Krátce zastaví pouze SensoGrid a Bluetooth; InfluxDB a data aplikace zachová. Nezavádí automatické restartování BlueZ ani oprávnění webového kontejneru spravovat hostitele.
-
-**Pozdější odstranění:** až distribuční BlueZ prokazatelně obsahuje obě opravy, přejdi zpět na konkrétní ověřenou distribuční verzi podle podrobného návodu. Samotné vyšší číslo verze není důkaz; vydání 5.87 těmto commitům předcházelo. Není nastaven `apt hold` ani pinning, ale přípona `+sensogrid1` může být řazena výše než další aktualizace stejného Debian základu, proto návrat zkontroluj ručně. Patche, pomocné skripty a tuto sekci odeber až po ověřeném návratu a stabilním provozu; do té doby ponech původní balík `5.82-1.1` pro rollback.
+Původní rozbor a dočasný balík BlueZ jsou [archivované zde](docs/legacy-lt-bluetooth.md). Nový sběrač neprovádí GATT discovery ani připojování; archivované výsledky nedokládají stabilitu nového příjmu reklam.
 
 ### Portainer
 
@@ -130,13 +117,13 @@ $env:SENSOGRID_INFLUX_URL = "http://localhost:8181"
 uv run uvicorn sensogrid.main:app --host 127.0.0.1 --port 8000
 ```
 
-Při diagnostice nastav SENSOGRID_DIAGNOSTICS=true: loguje raw advertisement/service/manufacturer data a GATT charakteristiky/notifikace podporovaného zařízení. Ve výchozím režimu je podrobné logování vypnuté. Hesla, session ani push klíče se nelogují.
+Při diagnostice nastav SENSOGRID_DIAGNOSTICS=true: loguje dekódované BTHome objekty podporovaných reklam. Diagnostický ZIP obsahuje počty přijatých/neplatných/duplicitních paketů, stav scanneru a hash nového dekodéru. Ve výchozím režimu je podrobné logování vypnuté. Hesla, session ani push klíče se nelogují.
 
 ## Časová data a výpadky
 
 SQLite obsahuje uživatele, sessions, nastavení, senzory, místnosti, půdorys, alerty a push subscriptions. Historická měření v ní nejsou. Migrace probíhají při startu; ID místností/senzorů jsou stabilní.
 
-Influx tabulka measurements ukládá UTC čas přijetí měření od senzoru, sensor_id, room_id v okamžiku měření, teplotu, RH, zdroj, volitelné RSSI a samostatný ingested_at. Senzorový A2 rámec vlastní čas nemá; timestamp tedy není hardwarový čas měření. Přesun senzoru historii nepřepíše; staré live hodnoty se nepřesunou do nové místnosti.
+Influx tabulka measurements ukládá UTC čas přijetí měření od senzoru, sensor_id, room_id v okamžiku měření, teplotu, RH, zdroj, volitelné RSSI a samostatný ingested_at. BTHome klimatický rámec nepřenáší čas; timestamp je UTC čas přijetí teploty a vlhkosti, nikoli hardwarový čas měření. Pomocné pakety s napětím ani opakovaný packet ID jej neposouvají. Přesun senzoru historii nepřepíše; staré live hodnoty se nepřesunou do nové místnosti.
 
 Core má limit přibližně 72 h na dotaz. Aplikace používá nejvýše 48h SQL okna, serverovou agregaci a vážené sloučení přes hranice oken. Dny/týdny/měsíce jsou kalendářní UTC; UI zobrazuje místní čas. Raw rozsah je limitovaný počtem bodů; větší rozsah vyžaduje agregaci. Chybějící hodnoty se nedoplňují nulou.
 
@@ -191,27 +178,15 @@ Bluetooth sběr běží nativně ve Windows, InfluxDB v Dockeru. Po instalaci z�
 ./scripts/start-local.ps1
 ~~~
 
-Aplikace běží na http://127.0.0.1:8000 v režimu BLE. V Nastavení vyhledej senzory; nalezená zařízení načtou teplotu a vlhkost asynchronně ještě před přidáním. Při neúspěchu použij Změřit znovu. Potom vybrané senzory přidej. Nalezená zařízení zůstávají v seznamu i při výpadku nebo dalším hledání; lze je přidat a upravit offline. Poslední hodnoty mají vlastní čas měření. Seznam si pamatuje tento prohlížeč pro přihlášený účet. Seznam ukazuje poslední teplotu, vlhkost a čas měření, obnovuje se každých 5 sekund; fyzické měření řídí interval sběru (výchozí 300 sekund). Při identifikaci lze dočasně nastavit kratší interval. V Půdorysu importuj vlastní JSON a vyber senzor a místnost. Import podporuje export SensoGridu i formát s `schemaVersion: 1`, `units: "meters"`, `canvas: {width, height}` a `rooms`; před použitím zobrazí validovaný náhled. Měření zůstává uložené podle ID senzoru i bez přiřazené místnosti.
+Aplikace běží na http://127.0.0.1:8000 v režimu BLE. V Nastavení vyhledej ATC/BTHome senzory, přidej vybrané zařízení a přiřaď místnost v Půdorysu. Scanner běží stále, sdílí se mezi discovery, náhledem a sběrem. „Počkat na nové vysílání“ čeká na další klimatický paket; neposílá teploměru žádný příkaz.
 
-Sběr BLE používá šetrný profil: výchozí interval 300 sekund, nejvýše jedno současné spojení a celkem dva pokusy s prodlevou 1 sekunda. Před prvním pokusem a opakováním se ověří přítomnost senzoru v novém scanu; souběžné požadavky mohou sdílet scan dokončený po svém zahájení. Zařízení chybějící ve scanu se nepřipojuje přes starý záznam. Po selhání cyklu se další měření daného senzoru odloží o 5, potom 10 a dále nejvýše 20 minut. To platí i pro ruční „Změřit znovu“ u registrovaného senzoru a pro selhání scanu. Úspěšné měření vrátí pauzu pro příští chybu na 5 minut. Nedostupný senzor nezkracuje tuto pauzu na původních 30 sekund; ostatní senzory se dál měří podle svého intervalu. Poslední skutečné hodnoty přežijí restart, stále platí nastavená hranice zastarání a přiřazení k místnosti.
-
-Při **prvním startu této verze v režimu BLE** se uložený globální interval a individuální override kratší než 300 sekund jednorázově zvýší na 300 sekund. Delší intervaly, dědění globálního intervalu a hranice zastarání zůstávají zachované. Aplikace si provedení zapamatuje klíčem konfigurace `ble_gentle_profile_v1`; pozdější ruční změny intervalu již při restartu nepřepisuje. Pauzy po chybách jsou stav běžícího procesu; restart aplikace zahájí nové ověření dostupnosti.
-
-**Nasazení šetrného profilu:** pokud ve stávajícím `.env` máš `SENSOGRID_BLE_CONCURRENCY=2` (nebo vyšší), změň hodnotu na `1` a znovu vytvoř kontejner aplikace. Uložená hodnota v `.env` má přednost před novým výchozím nastavením Compose. Po spuštění zkontroluj v Nastavení globální i individuální intervaly (nejméně 300 s) a v diagnostickém ZIPu `ble_concurrency: 1`, `read_attempts: 2`. Při prvním testu nepřipojuj souběžně telefon nebo druhou čtecí aplikaci. Tento profil omezuje zátěž; neprokazuje opravu firmwaru teploměrů ani pádu BlueZ. Rozšířené logování a experimenty s ukončením spojení jsou samostatný další krok.
-
-Senzory v Nastavení tvoří jediný seznam podle MAC adresy. Uložený název, ID a přiřazení mají přednost před BLE názvem; opakované hledání nevytváří další záznam. MAC se porovnává bez ohledu na velikost písmen, dvojtečky, pomlčky a mezery; API brání duplicitní registraci.
-
-Sběr i náhledy používají asynchronní čtení. Limit souběžných BLE spojení nastavuje `SENSOGRID_BLE_CONCURRENCY` (1–10, výchozí 2); konkrétní adaptér/Windows může skutečná spojení omezovat. Při problémech lze limit snížit. Stejná MAC se nikdy nečte dvěma spojeními současně; scan se provádí odděleně od připojených klientů. Nativní test 5 senzorů uspěl, ale v tomto běhu byl pozorován pouze jeden současně plně navázaný GATT klient; deset fyzických spojení nebylo ověřeno. Viz [BleakClient](https://bleak.readthedocs.io/en/latest/api/client.html).
-
-## BLE benchmark Debian / Windows — 23. 10. 2026
-
-[Celý report a výsledky po senzorech](docs/ble-benchmark-2026-10-23.md). Debian: nejlepší pilotní výsledek dvě současná čtení (86 %). Windows: nejvíce dodaných vzorků při limitu pět (80 %), ale Obývák už chyběl a reálně byla dostupná pouze čtyři zařízení. Linuxový profil D obsahuje potvrzený další pád BlueZ 5.82-1.1+sensogrid1; backport stabilitu nezajistil. Produkční retry/souběh se při experimentu neměnily.
+Dashboard zobrazuje nové přijaté hodnoty průběžně. Interval v Nastavení řídí pouze ukládání historie (výchozí 60 s pro nové instalace); stávající intervaly se nepřepisují. Žádná BLE spojení, concurrency ani připojovací retry. Zastarání řídí stáří klimatických dat. Windows/BlueZ používají aktivní scan reklam; scan request není GATT spojení. Nastavení teploměru: **BTHome v2**, **Encrypted beacon = 0**, **AdFlags = 1**. Stock Xiaomi MiBeacon ani šifrovaný BTHome se v této verzi nepřijímají.
 
 ## Záchranný restart Bluetooth — 23. 10. 2026
 
-Výchozí souběh BLE je nyní 2. Historie propojuje chybějící úseky čarou mezi skutečnými vzorky; žádné náhradní vzorky se neukládají a statistiky se nemění.
+BLE sběr používá jediný scanner bez spojení. Historie propojuje chybějící úseky čarou mezi skutečnými vzorky; žádné náhradní vzorky se neukládají a statistiky se nemění.
 
-Volitelný [hostitelský systemd timer](diagnostics/ble-rescue/README.md) restartuje pouze bluetooth.service, pokud všechny zapnuté senzory přestanou dodávat data nejméně na 10 minut (nebo trojnásobek nejdelšího intervalu měření). Stejná ochranná lhůta platí po startu aplikace. Další pokus nejdříve za 30 minut; jednotlivý nedostupný senzor restart nevyvolá. Instalace vyžaduje sudo; aplikace zůstává bez root oprávnění. Restart krátce přeruší i ostatní Bluetooth spojení hostitele. Jde o dočasnou záchranu, ne opravu příčiny pádu BlueZ 5.82-1.1+sensogrid1.
+Volitelný [hostitelský systemd timer](diagnostics/ble-rescue/README.md) restartuje pouze bluetooth.service, pokud všechny zapnuté BTHome senzory přestanou dodávat data nejméně na 10 minut (nebo trojnásobek nejdelšího intervalu měření). Stejná ochranná lhůta platí po startu aplikace. Další pokus nejdříve za 30 minut; jednotlivý nedostupný senzor restart nevyvolá. Instalace vyžaduje sudo; aplikace zůstává bez root oprávnění. Restart krátce přeruší i ostatní Bluetooth spojení hostitele. Jde o volitelnou dočasnou záchranu hostitele. Po aktualizaci skriptu zopakuj jeho instalátor; stará nainstalovaná kopie ještě započítává i LT senzory. Webová aplikace restart Bluetooth neprovádí.
 
 Nastavení ukazuje poslední skutečné hodnoty a jejich čas i u nedostupných senzorů. API je při výpadku nevynuluje, takže je nenahradí starší náhled z prohlížeče. Dostupnost řídí příznak available; aktuální průměry a místnosti nadále používají pouze dostupné senzory.
 
@@ -219,6 +194,6 @@ Nastavení ukazuje poslední skutečné hodnoty a jejich čas i u nedostupných 
 
 V Nastavení lze stáhnout ZIP s posledními aplikačními logy a stavem senzorů. Pro systémové logy BlueZ je připraven volitelný čtecí helper; aplikace zůstává bez root oprávnění. [Nasazení a obsah diagnostiky](docs/diagnostics-and-battery.md).
 
-Baterie se zobrazuje v procentech ze standardní charakteristiky Bluetooth 2A19, nikoli přepočtem battery_raw. Pokud hodnotu firmware neposkytne, zobrazí se „—“. Čte se ve stejném spojení nejvýše jednou za hodinu; upozornění na baterii zatím nejsou přidána.
+Baterie se přijímá přímo jako procento z BTHome objektu `0x01`, včetně platných 0 %. Má vlastní čas přijetí; nepočítá se z napětí ani RSSI. Jde o odhad firmwaru, nikoli měření odebrané kapacity. Upozornění na baterii zatím nejsou přidána.
 
 Další šetření pádů, chybějících core dumpů a výběru adaptéru: [stav a ověřovací postup](docs/ble-stability-investigation-2026-10-23.md).

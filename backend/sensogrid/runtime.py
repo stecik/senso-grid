@@ -12,13 +12,12 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .ble.address import address_key, canonical_address
-from .ble.lt import LTDriver
-from .ble.radio import BLERadio
+from .ble.bthome import BTHomeDriver
 from .config import Settings
 from .timeseries import InfluxStore, aggregate_points, bucket_start, utc
 
 logger = logging.getLogger(__name__)
-READ_ATTEMPTS = 2
+SCAN_RETRY_SECONDS = 15
 
 
 class RuntimeDatabase(Protocol):
@@ -33,16 +32,6 @@ class RuntimeDatabase(Protocol):
     def system_settings(self) -> dict[str, Any]: ...
 
     def note_seen(self, sensor_id: str, iso_timestamp: str) -> None: ...
-
-
-class SensorDriver(Protocol):
-    """Collection operations supported by interchangeable sensor drivers."""
-
-    protocol: str
-
-    async def discover(self, timeout: float = 15) -> list[dict[str, Any]]: ...
-
-    async def read_current(self, address: str, timeout: float = 12) -> dict[str, Any]: ...
 
 
 class MeasurementStore(Protocol):
@@ -67,7 +56,7 @@ class MeasurementStore(Protocol):
 class Runtime:
     def __init__(self, settings: Settings, db: RuntimeDatabase) -> None:
         self.settings, self.db = settings, db
-        self.driver: SensorDriver = LTDriver(settings.diagnostics)
+        self.driver = BTHomeDriver(settings.diagnostics)
         self.store: MeasurementStore = InfluxStore(
             settings.influx_url, settings.influx_token, settings.influx_database
         )
@@ -80,14 +69,9 @@ class Runtime:
         self.read_states: dict[str, str] = {}
         self.unavailable_sensors: set[str] = set(db.config("unavailable_sensors", []))
         self._tasks: list[asyncio.Task[None]] = []
-        self._radio = BLERadio(settings.ble_concurrency)
-        self._discovery_lock = asyncio.Lock()
-        self._last_scan = -float("inf")
-        self._scan_results: list[dict[str, Any]] = []
         self._last_poll: dict[str, float] = {}
-        self._retry_after: dict[str, float] = {}
-        self._read_failures: dict[str, int] = {}
-        self._read_locks: dict[str, asyncio.Lock] = {}
+        self._assignments = {s["id"]: self._assignment(s) for s in db.all_sensors()}
+        self._assignment_since: dict[str, str] = {}
         self._outbox = Path(settings.data_dir) / "outbox"
         self._db_ready = False
 
@@ -98,6 +82,7 @@ class Runtime:
         self._outbox.mkdir(parents=True, exist_ok=True)
         self._tasks.append(asyncio.create_task(self._flush_loop(), name="influx-writer"))
         if self.settings.mode == "ble":
+            self._tasks.append(asyncio.create_task(self._scan_loop(), name="bthome-scanner"))
             self._tasks.append(asyncio.create_task(self._collect_loop(), name="ble-collector"))
         else:
             self.state["collector"] = "disabled"
@@ -145,30 +130,18 @@ class Runtime:
         if self.settings.mode == "demo":
             return [
                 {
-                    "name": "LT_7506 (demo)",
-                    "address": "02:00:00:5E:00:03",
+                    "name": "ATC_5E0001 (demo)",
+                    "address": "02:00:00:5E:00:01",
                     "rssi": -61,
-                    "protocol": "lt_thermometer",
+                    "protocol": self.driver.protocol,
                     "service_uuids": [],
                     "manufacturer_data": {},
                     "service_data": {},
                 }
             ]
-        return await self._discover_devices()
-
-    async def _discover_devices(
-        self, timeout: float = 15, newer_than: float | None = None
-    ) -> list[dict[str, Any]]:
-        async with self._discovery_lock:
-            if newer_than is not None and self._last_scan > newer_than:
-                return self._scan_results
-            async with self._radio.scan():
-                self._scan_results = []
-                self._last_scan = -float("inf")
-                devices = await self.driver.discover(timeout=timeout)
-                self._scan_results = devices
-                self._last_scan = time.monotonic()
-                return devices
+        if self.settings.mode != "ble":
+            raise ValueError("Bluetooth collection is disabled")
+        return await self.driver.discover()
 
     async def preview_sensor(self, address: str) -> dict[str, Any]:
         if self.settings.mode == "demo":
@@ -180,121 +153,71 @@ class Runtime:
             }
         if self.settings.mode != "ble":
             raise ValueError("Bluetooth collection is disabled")
+        row = await self.driver.read_current(canonical_address(address))
+        self._publish_reading(address, row)
+        return row
+
+    def _publish_reading(self, address: str, row: dict[str, Any]) -> None:
         sensor = next(
             (
                 s
                 for s in self.db.all_sensors()
                 if address_key(s.get("address") or "") == address_key(address)
                 and s.get("enabled", True)
-            ),
-            None,
-        )
-        sensor_id = sensor["id"] if sensor else None
-        row = await self._read_with_retry(address, sensor_id)
-        self._publish_reading(address, row)
-        return row
-
-    def _record_read_failure(self, sensor_id: str) -> None:
-        failures = min(self._read_failures.get(sensor_id, 0) + 1, 3)
-        self._read_failures[sensor_id] = failures
-        self._retry_after[sensor_id] = time.monotonic() + 300 * 2 ** (failures - 1)
-        self.read_states[sensor_id] = "unavailable"
-        self.unavailable_sensors.add(sensor_id)
-        self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
-
-    async def _read_with_retry(
-        self, address: str, sensor_id: str | None = None, *, scanned_after: float | None = None
-    ) -> dict[str, Any]:
-        address = canonical_address(address)
-        lock = self._read_locks.setdefault(address_key(address), asyncio.Lock())
-        async with lock:
-            return await self._read_attempts(address, sensor_id, scanned_after=scanned_after)
-
-    async def _read_attempts(
-        self, address: str, sensor_id: str | None, *, scanned_after: float | None
-    ) -> dict[str, Any]:
-        started = time.monotonic() if scanned_after is None else scanned_after
-        if sensor_id and self._retry_after.get(sensor_id, 0) > time.monotonic():
-            raise LookupError("Sensor is cooling down after failed reads")
-        for attempt in range(READ_ATTEMPTS):
-            if sensor_id:
-                self.read_states[sensor_id] = "reading" if attempt == 0 else "retrying"
-            try:
-                devices = await self._discover_devices(
-                    timeout=5 if attempt else 15, newer_than=started
-                )
-                if not any(address_key(d["address"]) == address_key(address) for d in devices):
-                    raise LookupError("Sensor not present in fresh scan")
-                async with self._radio.read(address):
-                    return await self.driver.read_current(address)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                if attempt == READ_ATTEMPTS - 1:
-                    logger.warning(
-                        "BLE read exhausted address=%s attempts=%s reason=%s: %s",
-                        address,
-                        READ_ATTEMPTS,
-                        type(exc).__name__,
-                        str(exc),
-                        exc_info=True,
-                    )
-                    if sensor_id:
-                        self._record_read_failure(sensor_id)
-                    raise
-                if sensor_id:
-                    self.read_states[sensor_id] = "retrying"
-                delay = 2**attempt
-                started = time.monotonic()
-                logger.info(
-                    "BLE retry address=%s attempt=%s delay=%s reason=%s",
-                    address,
-                    attempt + 2,
-                    delay,
-                    type(exc).__name__,
-                )
-                await asyncio.sleep(delay)
-        raise AssertionError("Retry loop exhausted")
-
-    def _publish_reading(self, address: str, row: dict[str, Any], rssi: int | None = None) -> None:
-        sensors = self.db.all_sensors()
-        sensor = next(
-            (
-                s
-                for s in sensors
-                if address_key(s.get("address") or "") == address_key(address)
-                and s.get("enabled", True)
+                and s["protocol"] == self.driver.protocol
             ),
             None,
         )
         if sensor is None:
             return
-        sample = {k: row[k] for k in ("timestamp", "temperature", "humidity", "battery_raw")}
-        previous = self._latest.get(sensor["id"], {})
-        if previous.get("sensor_address") != sensor["address"]:
-            previous = {}
-        battery = row if row.get("battery_percent") is not None else previous
-        sample.update({key: battery.get(key) for key in ("battery_percent", "battery_timestamp")})
-        sample.update(
-            sensor_id=sensor["id"],
-            room_id=sensor.get("room_id"),
-            sensor_address=sensor["address"],
-            rssi=rssi,
-            source="ble",
+        sid = sensor["id"]
+        self._track_assignment(sensor)
+        if row["timestamp"] <= self._assignment_since.get(sid, ""):
+            return
+        previous = self._latest.get(sid, {})
+        # A cached frame must never move to another room or create a repeated sample.
+        if row["timestamp"] <= previous.get("timestamp", ""):
+            return
+        sample: dict[str, Any] = {
+            **row,
+            "sensor_id": sid,
+            "room_id": sensor.get("room_id"),
+            "sensor_address": sensor["address"],
+            "source": self.driver.protocol,
+        }
+        same_assignment = (
+            previous.get("room_id") == sample["room_id"]
+            and previous.get("sensor_address") == sample["sensor_address"]
         )
-        self._queue_sample(sample)
-        self._latest[sensor["id"]] = sample
-        ids = {s["id"] for s in sensors}
-        self._latest = {key: value for key, value in self._latest.items() if key in ids}
+        interval = (
+            sensor.get("sample_interval_seconds")
+            or self.db.system_settings()["sample_interval_seconds"]
+        )
+        if (
+            not same_assignment
+            or time.monotonic() - self._last_poll.get(sid, -float("inf")) >= interval
+        ):
+            self._queue_sample(sample)
+            self._last_poll[sid] = time.monotonic()
+        self._latest[sid] = sample
         self.db.set_config("latest_readings", self._latest)
-        self.db.note_seen(sensor["id"], sample["timestamp"])
-        self._last_poll[sensor["id"]] = time.monotonic()
-        self._retry_after.pop(sensor["id"], None)
-        self._read_failures.pop(sensor["id"], None)
-        self.read_states[sensor["id"]] = "ready"
-        self.unavailable_sensors.discard(sensor["id"])
-        self.unavailable_sensors.intersection_update(ids)
-        self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
+        self.db.note_seen(sid, sample["timestamp"])
+        self.read_states[sid] = "ready"
+        if sid in self.unavailable_sensors:
+            self.unavailable_sensors.discard(sid)
+            self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
+
+    @staticmethod
+    def _assignment(sensor: dict[str, Any]) -> tuple[Any, ...]:
+        return (sensor.get("room_id"), sensor.get("address"), sensor.get("enabled", True))
+
+    def _track_assignment(self, sensor: dict[str, Any]) -> None:
+        sid, assignment = sensor["id"], self._assignment(sensor)
+        if self._assignments.get(sid) != assignment:
+            self._assignments[sid] = assignment
+            # Conservatively discard buffered data on room/address/enabled changes.
+            # Next newly received frame belongs to the new assignment.
+            self._assignment_since[sid] = datetime.now(UTC).isoformat()
 
     async def history(
         self,
@@ -395,105 +318,82 @@ class Runtime:
                 self._db_ready = False
             await asyncio.sleep(10)
 
+    async def _scan_loop(self) -> None:
+        while True:
+            try:
+                await self.driver.run()
+                raise RuntimeError("Bluetooth scanner exited unexpectedly")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.state["collector"] = "unavailable"
+                self.state["last_error"] = (
+                    "Bluetooth scanner unavailable; automatic retry scheduled"
+                )
+                logger.exception("BTHome scanner failed; retry in %ss", SCAN_RETRY_SECONDS)
+                await asyncio.sleep(SCAN_RETRY_SECONDS)
+
+    def _collect_once(self) -> None:
+        stale = self.db.system_settings()["stale_after_seconds"]
+        all_sensors = self.db.all_sensors()
+        for sensor in all_sensors:
+            self._track_assignment(sensor)
+        sensors = [s for s in all_sensors if s.get("enabled", True) and s.get("address")]
+        for sensor in sensors:
+            sid = sensor["id"]
+            self._track_assignment(sensor)
+            if sensor["protocol"] != self.driver.protocol:
+                self.read_states[sid] = "unavailable"
+                self.unavailable_sensors.add(sid)
+                continue
+            row = self.driver.latest(sensor["address"], max_age=stale)
+            if row is not None:
+                self._publish_reading(sensor["address"], row)
+            # Cache retention and scanner restarts must not shorten the configured
+            # freshness of a persisted climate sample.
+            latest = self._latest.get(sid, {})
+            age = (
+                (datetime.now(UTC) - utc(latest["timestamp"])).total_seconds()
+                if latest
+                else float("inf")
+            )
+            same_assignment = (
+                latest.get("room_id") == sensor.get("room_id")
+                and latest.get("sensor_address") == sensor["address"]
+            )
+            if not same_assignment or not 0 <= age <= stale:
+                self.read_states[sid] = "unavailable" if sid in self._latest else "waiting"
+                self.unavailable_sensors.add(sid)
+            else:
+                self.read_states[sid] = "ready"
+                self.unavailable_sensors.discard(sid)
+        ids = {s["id"] for s in self.db.all_sensors()}
+        self._latest = {sid: row for sid, row in self._latest.items() if sid in ids}
+        self.unavailable_sensors.intersection_update(ids)
+        saved = self.db.config("unavailable_sensors", [])
+        if saved != sorted(self.unavailable_sensors):
+            self.db.set_config("unavailable_sensors", sorted(self.unavailable_sensors))
+
     async def _collect_loop(self) -> None:
         while True:
             try:
-                sensors = [
-                    s for s in self.db.all_sensors() if s.get("enabled", True) and s.get("address")
-                ]
-                now = time.monotonic()
-                default_interval = self.db.system_settings()["sample_interval_seconds"]
-                due = []
-                for sensor in sensors:
-                    latest = self._latest.get(sensor["id"])
-                    same_assignment = (
-                        latest is not None
-                        and latest.get("room_id") == sensor.get("room_id")
-                        and latest.get("sensor_address", sensor["address"]) == sensor["address"]
-                    )
-                    next_poll = (
-                        self._last_poll.get(sensor["id"], -float("inf"))
-                        + max(10, sensor.get("sample_interval_seconds") or default_interval)
-                        if same_assignment
-                        else -float("inf")
-                    )
-                    if sensor["id"] in self.unavailable_sensors:
-                        next_poll = -float("inf")
-                    if now >= max(next_poll, self._retry_after.get(sensor["id"], 0)):
-                        due.append(sensor)
-                if not due:
+                self._collect_once()
+                if self.driver.running:
+                    supported = [
+                        s
+                        for s in self.db.all_sensors()
+                        if s.get("enabled", True) and s["protocol"] == self.driver.protocol
+                    ]
+                    failed = any(s["id"] in self.unavailable_sensors for s in supported)
                     self.state["collector"] = (
-                        "idle"
-                        if not sensors
-                        else "degraded"
-                        if any(self.read_states.get(s["id"]) == "unavailable" for s in sensors)
-                        else "ready"
+                        "idle" if not supported else "degraded" if failed else "ready"
                     )
-                    await asyncio.sleep(3)
-                    continue
-                self.state["collector"] = "scanning"
-                for sensor in due:
-                    self.read_states[sensor["id"]] = "reading"
-                try:
-                    devices = await self._discover_devices()
-                except Exception:
-                    for sensor in due:
-                        self._record_read_failure(sensor["id"])
-                    raise
-                rssi = {d["address"].upper(): d["rssi"] for d in devices}
-
-                async def poll(
-                    sensor: dict[str, Any], cycle_now: float, cycle_rssi: dict[str, int | None]
-                ) -> None:
-                    # A preview may have acquired a fresh sample while discovery waited.
-                    latest = self._latest.get(sensor["id"])
-                    if (
-                        latest
-                        and latest.get("room_id") == sensor.get("room_id")
-                        and self._last_poll.get(sensor["id"], 0) > cycle_now
-                    ):
-                        self.read_states[sensor["id"]] = "ready"
-                        return
-                    self.state["collector"] = "reading"
-                    try:
-                        if sensor["protocol"] != self.driver.protocol:
-                            raise ValueError("Unsupported sensor protocol")
-                        row = await self._read_with_retry(
-                            sensor["address"], sensor["id"], scanned_after=cycle_now
-                        )
-                        self._publish_reading(
-                            sensor["address"], row, cycle_rssi.get(sensor["address"].upper())
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        if self._retry_after.get(sensor["id"], 0) <= time.monotonic():
-                            self._record_read_failure(sensor["id"])
-                        self.read_states[sensor["id"]] = "unavailable"
-                        delay = max(
-                            0, math.ceil(self._retry_after[sensor["id"]] - time.monotonic())
-                        )
-                        self.state["last_error"] = (
-                            f"Sensor read failed after {READ_ATTEMPTS} attempts; another cycle is scheduled in {delay} seconds"
-                        )
-                        logger.warning(
-                            "Sensor %s read failed after retries: %s",
-                            sensor["id"],
-                            type(exc).__name__,
-                        )
-
-                await asyncio.gather(*(poll(sensor, now, rssi) for sensor in due))
-                failed = any(self.read_states.get(s["id"]) == "unavailable" for s in sensors)
-                self.state["collector"] = "degraded" if failed else "ready"
-                if not failed and self.state["storage"] == "ready":
-                    self.state["last_error"] = None
+                    if self.state["storage"] == "ready":
+                        self.state["last_error"] = None
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                self.state["collector"] = "unavailable"
-                self.state["last_error"] = "Bluetooth unavailable; automatic retry scheduled"
-                logger.warning(
-                    "BLE scan failed: %s: %s", type(exc).__name__, str(exc), exc_info=True
-                )
-                await asyncio.sleep(15)
-            await asyncio.sleep(3)
+            except Exception:
+                self.state["collector"] = "degraded"
+                self.state["last_error"] = "Cannot store received Bluetooth measurements"
+                logger.exception("BTHome collection failed")
+            await asyncio.sleep(1)

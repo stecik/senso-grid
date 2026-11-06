@@ -1,0 +1,12 @@
+{
+    "autorun": true,
+    "terminals": [
+        {
+            "name": "zsh",
+            "shellPath": "C:\\Program Files\\Git\\usr\\bin\\zsh.exe",
+            "shellArgs": ["-i", "-l"],
+            "autorun": true,
+            "focus": true
+        }
+    ]
+}

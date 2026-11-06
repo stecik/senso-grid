@@ -286,7 +286,7 @@ def test_spa_does_not_capture_api_or_traversal(tmp_path: Path) -> None:
 def test_global_interval_inheritance_and_overrides(logged: TestClient) -> None:
     sensor = logged.post("/api/sensors", json={"name": "Desk", "address": "AA:BB"}).json()
     sensor_id = sensor["id"]
-    assert sensor["sample_interval_seconds"] == 300 and sensor["interval_override_seconds"] is None
+    assert sensor["sample_interval_seconds"] == 60 and sensor["interval_override_seconds"] is None
     assert (
         logged.patch("/api/system/settings", json={"sample_interval_seconds": 300}).status_code
         == 200
@@ -417,11 +417,10 @@ def test_login_preserves_existing_password_without_new_complexity(client: TestCl
 
 
 def test_discovered_sensor_preview_does_not_register_sensor(logged: TestClient) -> None:
+    from sensogrid.ble.bthome import BTHomeDriver
     from sensogrid.runtime import Runtime
 
-    class Driver:
-        protocol = "lt_thermometer"
-
+    class Driver(BTHomeDriver):
         async def discover(self, timeout: float = 15) -> list[dict[str, Any]]:
             return [{"address": "AA:BB", "rssi": -60}]
 
@@ -588,6 +587,18 @@ def test_same_mac_with_different_format_does_not_create_another_sensor(logged: T
     assert len(sensors) == 1
     assert sensors[0]["id"] == first["id"]
     assert sensors[0]["name"] == "Ložnice"
+
+
+def test_new_sensor_uses_bthome_and_rejects_retired_lt_protocol(logged: TestClient) -> None:
+    response = logged.post("/api/sensors", json={"name": "Xiaomi", "address": "02:00:00:5E:00:01"})
+    assert response.status_code == 201
+    assert response.json()["protocol"] == "bthome_v2"
+    assert (
+        logged.post(
+            "/api/sensors", json={"name": "Old", "address": "11:22", "protocol": "lt_thermometer"}
+        ).status_code
+        == 422
+    )
 
 
 def test_legacy_heatmap_settings_keep_outer_limits_and_preferences(logged: TestClient) -> None:

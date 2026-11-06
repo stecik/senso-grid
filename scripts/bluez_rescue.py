@@ -71,7 +71,7 @@ def container_snapshot() -> dict:
         sensors = [
             {"last_seen": seen, "interval": interval or default}
             for seen, interval in db.execute(
-                "SELECT last_seen,sample_interval_seconds FROM sensors WHERE enabled=1 AND address IS NOT NULL AND address!=''"
+                "SELECT last_seen,sample_interval_seconds FROM sensors WHERE enabled=1 AND address IS NOT NULL AND address!='' AND protocol='bthome_v2'"
             )
         ]
     return {"mode": os.environ.get("SENSOGRID_MODE", "demo"), "sensors": sensors}

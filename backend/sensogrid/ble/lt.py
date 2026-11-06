@@ -1,4 +1,4 @@
-"""Small diagnostic/read-only driver; no clock, reset, firmware or unit writes."""
+"""Archived LT driver for historical benchmark scripts only; not used by Runtime."""
 
 import asyncio
 import logging

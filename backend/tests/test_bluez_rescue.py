@@ -89,14 +89,20 @@ def test_probe_uses_saved_intervals_and_ignores_disabled_sensors(
     monkeypatch.setenv("SENSOGRID_MODE", "ble")
     with sqlite3.connect(tmp_path / "sensogrid.sqlite3") as db:
         db.executescript(
-            "CREATE TABLE config(key TEXT,value TEXT); CREATE TABLE sensors(last_seen TEXT,sample_interval_seconds INTEGER,enabled INTEGER,address TEXT);"
+            "CREATE TABLE config(key TEXT,value TEXT); CREATE TABLE sensors(last_seen TEXT,sample_interval_seconds INTEGER,enabled INTEGER,address TEXT,protocol TEXT);"
         )
         db.execute(
             "INSERT INTO config VALUES('system',?)", (json.dumps({"sample_interval_seconds": 60}),)
         )
         db.executemany(
-            "INSERT INTO sensors VALUES(NULL,?,?,?)",
-            [(None, 1, "AA"), (120, 1, "BB"), (10, 0, "CC"), (10, 1, None)],
+            "INSERT INTO sensors VALUES(NULL,?,?,?,?)",
+            [
+                (None, 1, "AA", "bthome_v2"),
+                (120, 1, "BB", "bthome_v2"),
+                (10, 0, "CC", "bthome_v2"),
+                (10, 1, None, "bthome_v2"),
+                (10, 1, "OLD", "lt_thermometer"),
+            ],
         )
     result = rescue.container_snapshot()
     assert result == {

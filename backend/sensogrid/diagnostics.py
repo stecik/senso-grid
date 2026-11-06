@@ -8,7 +8,6 @@ import logging
 import platform
 import re
 import sys
-import time
 import zipfile
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
@@ -131,8 +130,6 @@ def capture_logs(settings: Settings) -> Generator[None]:
 
 
 def build_bundle(settings: Settings, db: Database, runtime: "Runtime") -> bytes:
-    from .runtime import READ_ATTEMPTS
-
     now = datetime.now(UTC)
     secrets = secret_values(settings)
     manifest: dict[str, Any] = {
@@ -154,7 +151,7 @@ def build_bundle(settings: Settings, db: Database, runtime: "Runtime") -> bytes:
             except importlib.metadata.PackageNotFoundError:
                 versions[package] = "not installed"
         hashes = {}
-        for name in ("runtime.py", "ble/lt.py", "ble/protocol.py", "api.py", "diagnostics.py"):
+        for name in ("runtime.py", "ble/bthome.py", "ble/address.py", "api.py", "diagnostics.py"):
             source = Path(__file__).parent / name
             hashes[name] = hashlib.sha256(source.read_bytes()).hexdigest()
         latest = {row["sensor_id"]: row for row in runtime.current()}
@@ -189,11 +186,6 @@ def build_bundle(settings: Settings, db: Database, runtime: "Runtime") -> bytes:
                             "battery_timestamp",
                         )
                     },
-                    "retry_in_seconds": max(
-                        0,
-                        getattr(runtime, "_retry_after", {}).get(sensor["id"], 0)
-                        - time.monotonic(),
-                    ),
                 }
             )
         add_json(
@@ -206,9 +198,13 @@ def build_bundle(settings: Settings, db: Database, runtime: "Runtime") -> bytes:
                 "source_sha256": hashes,
                 "configuration": {
                     "mode": settings.mode,
-                    "ble_concurrency": settings.ble_concurrency,
-                    "read_attempts": READ_ATTEMPTS,
+                    "ble_protocol": "bthome_v2",
+                    "ble_connections": 0,
                     **db.system_settings(),
+                },
+                "scanner": {
+                    "running": getattr(getattr(runtime, "driver", None), "running", False),
+                    "statistics": getattr(getattr(runtime, "driver", None), "stats", {}),
                 },
                 "runtime": runtime.state,
                 "tasks": [

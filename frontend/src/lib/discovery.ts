@@ -8,7 +8,7 @@ export function mergeDiscovery(known:Discovered[],seen:Discovered[]):Discovered[
  for(const sighting of seen){
   const address=sighting.address.toUpperCase(),key=macKey(address),previous=byAddress.get(key)
   const defined=Object.fromEntries(Object.entries(sighting).filter(([,value])=>value!==undefined))
-  const device={...previous,...defined,address,name:sighting.name||previous?.name||address,protocol:previous?.protocol==='lt_thermometer'?previous.protocol:sighting.protocol??previous?.protocol??null,available:previousStates.get(key),seen_in_scan:true,measurement_error:false} as Discovered
+  const device={...previous,...defined,address,name:sighting.name||previous?.name||address,protocol:sighting.protocol??previous?.protocol??null,available:sighting.available??previousStates.get(key),seen_in_scan:true,measurement_error:false} as Discovered
   if(previous)Object.assign(previous,device)
   else{devices.push(device);byAddress.set(key,device)}
  }

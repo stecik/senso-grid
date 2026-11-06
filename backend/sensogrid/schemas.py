@@ -36,7 +36,7 @@ class SensorInput(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     address: str = Field(min_length=1, max_length=128)
     room_id: str | None = None
-    protocol: Literal["lt_thermometer"] = "lt_thermometer"
+    protocol: Literal["bthome_v2"] = "bthome_v2"
 
     @field_validator("address", mode="before")
     @classmethod

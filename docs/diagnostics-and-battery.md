@@ -28,10 +28,10 @@ minutu. Stahování neprovádí scan, nové BLE spojení ani restart.
 Archiv obsahuje:
 
 - `snapshot.json`: verze Pythonu a knihoven, hash skutečného zdrojového kódu,
-  režim, souběh, počet pokusů, intervaly, stav sběru/úložiště, počet souborů
-  outboxu, senzory a jejich poslední hodnoty, baterii, čas a stav retry.
+  režim, protokol, počet spojení (0), statistiky scanneru, intervaly, stav sběru/úložiště, počet souborů
+  outboxu, senzory a jejich poslední hodnoty, baterii, čas a dostupnost.
 - `application/app.jsonl*`: rotované logy aplikace, chyby Bleak/D-Bus,
-  jednotlivé retry a úplné výjimky posledního neúspěšného čtení či scanu.
+  start/stop a chyby scanneru včetně úplných výjimek.
   Uchovávají se přes restart v datovém volume; přibližně 4 × 512 KiB.
 - `host.json`, je-li helper nainstalován: poslední dvě hodiny logů Bluetooth a
   vybraných kernelových zpráv, stav a počet restartů BlueZ, USB topologie,
@@ -61,7 +61,14 @@ sudo journalctl -u sensogrid-diagnostics.service
 sudo systemctl disable --now sensogrid-diagnostics.timer
 ```
 
-## Baterie
+## Baterie — BTHome od 6. 11. 2026
+
+Xiaomi s ATC firmwarem posílá procento v BTHome objektu `0x01`, napětí v `0x0C`.
+Aplikace používá přímo procento (i 0 %), vlastní čas baterie a žádné GATT spojení.
+Pomocný paket pouze s napětím neobnovuje stáří teploty/vlhkosti.
+Procento je odhad firmwaru a nelze z něj samotného odvodit denní spotřebu.
+
+### Archiv: původní LT baterie
 
 Dřívější GATT výpis skutečného senzoru obsahuje službu `180F` a čitelnou
 charakteristiku `2A19` (diagnostics/ble/connection-attempt-2.jsonl, řádek 11).

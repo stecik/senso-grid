@@ -1,0 +1,44 @@
+name: Export release image
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag (e.g. v1.0.0)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+permissions:
+  contents: write
+  packages: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Export the published image to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${RELEASE_TAG#v}"
+          image="ghcr.io/stecik/sensogrid:$version"
+          docker pull "$image"
+          test "$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')" = "$version"
+          test "$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          archive="sensogrid-$version-linux-amd64.tar.gz"
+          docker save "$image" | gzip > "$archive"
+          sha256sum "$archive" > "$archive.sha256"
+          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256"

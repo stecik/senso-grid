@@ -55,3 +55,11 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: gh release create "$RELEASE_TAG" --verify-tag --title "SensoGrid $RELEASE_VERSION" --notes-file "docs/releases/$RELEASE_VERSION.md"
+  export:
+    needs: publish
+    permissions:
+      contents: write
+      packages: read
+    uses: ./.github/workflows/export-image.yml
+    with:
+      tag: ${{ github.ref_name }}

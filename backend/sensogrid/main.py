@@ -82,7 +82,7 @@ def create_app(
 
     app = FastAPI(
         title="SensoGrid",
-        version="1.0.0",
+        version="1.0.1",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

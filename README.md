@@ -1,6 +1,6 @@
 # SensoGrid
 
-Stabilní verze **1.0.0**. Docker image: `ghcr.io/stecik/sensogrid:1.0.0` (Linux amd64). [Poznámky k vydání](docs/releases/1.0.0.md).
+Stabilní verze **1.0.1**. Docker image: `ghcr.io/stecik/sensogrid:1.0.1` (Linux amd64). [Poznámky k vydání](docs/releases/1.0.1.md).
 
 Lokální monitor teploty a vlhkosti. Vue 3 PWA + FastAPI, SQLite pro nastavení, InfluxDB 3 Core pro historii. Dva runtime kontejnery. Xiaomi LYWSD03MMC s pvvx ATC firmwarem (ověřeno v5.9): teplota, vlhkost a baterie z nešifrovaných BTHome v2 reklam, bez BLE spojení.
 
